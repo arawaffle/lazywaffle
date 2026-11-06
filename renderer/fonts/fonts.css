@@ -1,0 +1,7 @@
+/* 숫자: 페이퍼로지 / 본문: 나눔스퀘어 (전광판 픽셀 폰트는 deskpixel.css, 타이틀·월 숫자 serif 는 serif.css) */
+@font-face { font-family: 'Paperlogy'; font-weight: 400; font-display: swap; src: url(./Paperlogy-4Regular.woff2) format('woff2'); }
+@font-face { font-family: 'Paperlogy'; font-weight: 600; font-display: swap; src: url(./Paperlogy-6SemiBold.woff2) format('woff2'); }
+@font-face { font-family: 'Paperlogy'; font-weight: 700; font-display: swap; src: url(./Paperlogy-7Bold.woff2) format('woff2'); }
+
+@font-face { font-family: 'NanumSquare'; font-weight: 400; font-display: swap; src: url(./NanumSquareR.woff) format('woff'); }
+@font-face { font-family: 'NanumSquare'; font-weight: 700; font-display: swap; src: url(./NanumSquareB.woff) format('woff'); }
