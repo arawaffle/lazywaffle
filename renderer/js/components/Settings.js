@@ -6,10 +6,10 @@ import { setSetting, addSticker, deleteSticker, saveLink, deleteLink, moveLink, 
 import { pickAndStoreImage, exportBackup, importBackup, isElectron, shell, clearCache } from '../storage.js';
 import { meshBackground } from '../util/color.js';
 import { hold, release } from '../focus.js';
-import { Segmented, Toggle, Field, Range } from './controls.js';
+import { Segmented, Toggle, Field, Range, ColorPicker, ColorSwatch } from './controls.js';
 import { Icon, IconButton } from './icons.js';
 import { Confirm } from './Popup.js';
-import { LayoutEditor, findSlot } from './LayoutEditor.js';
+import { LayoutEditor, findSlot, validPlacement } from './LayoutEditor.js';
 import { ImageEditor } from './ImageEditor.js';
 import { setLinksMode } from './Links.js';
 import { imageSize } from '../util/icon.js';
@@ -71,12 +71,7 @@ function FillEditor({ title, path, fill, onPicked, autoEdit }) {
     ${path === 'background' && fill.image && html`<${Range} label="이미지 흐림" value=${fill.blur || 0} min=${0} max=${40} suffix="px"
       onChange=${(v) => set({ blur: v })} />`}
     ${editing && fill.image && html`<${ImageEditor} path=${path} fill=${fill} onClose=${() => setEditing(false)} />`}`}
-    ${fill.type === 'color' && html`<div class="swatches" role="group" aria-label="색상">
-        ${MONO.map((c) => html`<button type="button" class=${cx('swatch', fill.color === c && 'is-on')} style=${{ background: c }}
-          aria-label=${'색상 ' + c} aria-pressed=${String(fill.color === c)} onClick=${() => set({ color: c })}></button>`)}
-        <label class="swatch swatch-custom" title="직접 선택"><span class="sr-only">직접 색상 선택</span>
-          <input type="color" value=${fill.color} onInput=${(e) => set({ color: e.currentTarget.value })} /></label>
-    </div>`}
+    ${fill.type === 'color' && html`<${ColorPicker} label=${title + ' 색상'} hideLabel colors=${MONO} value=${fill.color} onChange=${(c) => set({ color: c })} />`}
   </fieldset>`;
 }
 
@@ -96,14 +91,9 @@ function ThemeList() {
 
   function save(e) {
     e.preventDefault();
-    saveTheme(e.currentTarget.querySelector('input').value);
+    saveTheme(name);
     setName('');
   }
-  function finishRename(id, value) {
-    renameTheme(id, value);
-    setRenaming(null);
-  }
-
   return html`<fieldset class="set-group">
     <legend class="set-title">테마</legend>
     <form class="theme-form" onSubmit=${save}>
@@ -119,7 +109,7 @@ function ThemeList() {
           <span style=${fillStyle(t.background.fill, t.mesh)}></span>
         </span>
         ${renaming === t.id
-          ? html`<${ThemeRename} theme=${t} onDone=${(value) => (value === null ? setRenaming(null) : finishRename(t.id, value))} />`
+          ? html`<${ThemeRename} theme=${t} onDone=${(value) => { if (value !== null) renameTheme(t.id, value); setRenaming(null); }} />`
           : html`<span class="theme-text">
               <strong class="theme-name">${t.name}</strong>
               <span class="muted">스티커 ${t.stickers.length}개</span>
@@ -179,10 +169,8 @@ function BackgroundTab({ s, edit }) {
       <legend class="set-title">메시 그라데이션</legend>
       <div class="mesh-preview" style=${{ background: meshBackground(mesh.palette, mesh.seed) }} aria-hidden="true"></div>
       <div class="swatches" role="group" aria-label="팔레트">
-        ${mesh.palette.map((c, i) => html`<label class="swatch swatch-edit" style=${{ background: c }} title=${c} key=${i}>
-          <span class="sr-only">팔레트 색 ${i + 1} (${c}) 변경</span>
-          <input type="color" value=${c} onInput=${(e) => setSetting('mesh.palette', mesh.palette.map((x, j) => (j === i ? e.currentTarget.value : x)))} />
-        </label>`)}
+        ${mesh.palette.map((c, i) => html`<${ColorSwatch} key=${i} className="swatch" label=${'팔레트 색 ' + (i + 1)} value=${c}
+          onChange=${(v) => setSetting('mesh.palette', mesh.palette.map((x, j) => (j === i ? v : x)))} />`)}
       </div>
       <div class="btn-row">
         ${images.map((im) => html`<button type="button" class="btn btn-sm" onClick=${() => applyPalette(im.url)}>
@@ -213,8 +201,7 @@ function LayoutTab({ s }) {
     if (!on) return setSetting(key, layout.map((l) => (l.id === id ? { ...l, visible: false } : l)));
     const cur = layout.find((l) => l.id === id);
     const others = layout.filter((l) => l.id !== id);
-    const fits = !others.some((o) => o.visible && o.x < cur.x + cur.w && cur.x < o.x + o.w && o.y < cur.y + cur.h && cur.y < o.y + o.h);
-    const slot = fits ? cur : findSlot(others, id);
+    const slot = validPlacement(others, cur) ? cur : findSlot(others, id);
     if (!slot) return setWarn(`${WIDGETS[id].name}을(를) 놓을 빈 공간이 없습니다. 다른 위젯 크기를 줄여 주세요.`);
     setWarn('');
     setSetting(key, layout.map((l) => (l.id === id ? { ...l, ...slot, visible: true } : l)));
@@ -250,6 +237,10 @@ function StickersTab({ onClose }) {
   const { stickers, links, settings } = useApp();
   const [form, setForm] = useState({ title: '', url: '', icon: null });
   const [err, setErr] = useState('');
+  const setField = (key, e) => {
+    const value = e.currentTarget.value;
+    setForm((f) => ({ ...f, [key]: value }));
+  };
 
   async function addImageSticker() {
     const src = await pickAndStoreImage(1200);
@@ -258,7 +249,7 @@ function StickersTab({ onClose }) {
   async function pickIcon() {
     const icon = await pickAndStoreImage(256);
     if (!icon) return;
-    setForm({ ...form, icon });
+    setForm((f) => ({ ...f, icon }));
     // 너무 작은 이미지는 흐려지지 않게 정수배로만 키워 표시되므로 안내
     const { w, h } = await imageSize(icon).catch(() => ({ w: 0, h: 0 }));
     setErr(w && Math.min(w, h) < 96 ? `작은 이미지(${w}×${h})입니다. 128px 이상을 권장합니다.` : '');
@@ -299,9 +290,9 @@ function StickersTab({ onClose }) {
           ${form.icon ? html`<img src=${form.icon} alt="" />` : html`<${Icon} name="image" />`}
         </button>
         <label class="sr-only" for="ln-title">이름</label>
-        <input id="ln-title" class="input input-sm" placeholder="이름" value=${form.title} onInput=${(e) => setForm({ ...form, title: e.currentTarget.value })} />
+        <input id="ln-title" class="input input-sm" placeholder="이름" value=${form.title} onInput=${(e) => setField('title', e)} />
         <label class="sr-only" for="ln-url">주소</label>
-        <input id="ln-url" class="input input-sm" placeholder="https://" value=${form.url} onInput=${(e) => setForm({ ...form, url: e.currentTarget.value })} />
+        <input id="ln-url" class="input input-sm" placeholder="https://" value=${form.url} onInput=${(e) => setField('url', e)} />
         <button type="submit" class="btn btn-primary btn-sm">추가</button>
       </form>
       ${err && html`<p class="form-error" role="alert">${err}</p>`}
@@ -393,6 +384,8 @@ function GeneralTab({ s, info }) {
         hint="임시공휴일은 확정된 것만 표시합니다." />
       <${Toggle} label="용돈기입장 하루 합계를 날짜에 표시" checked=${s.ledgerOnCalendar !== false} onChange=${(v) => setSetting('ledgerOnCalendar', v)}
         hint="수입 − 지출. 10만 원 이상은 ‘만’ 단위." />
+      <${Range} label="일정 배경 불투명도 (모든 일정에 적용)" value=${s.eventOpacity ?? 100} min=${10} max=${100} step=${5} suffix="%"
+        onChange=${(v) => setSetting('eventOpacity', v)} />
     </fieldset>
     <fieldset class="set-group">
       <legend class="set-title">전광판 · 체크리스트</legend>
@@ -472,7 +465,6 @@ export function Settings({ info, initialTab, onClose }) {
   const { settings } = useApp();
   // initialTab: '탭 이름' 또는 { tab, edit } (배너 이미지 추가 직후 편집기 열기)
   const init = typeof initialTab === 'object' && initialTab ? initialTab : { tab: initialTab };
-  const initialEdit = init.edit;
   const [tab, setTab] = useState(init.tab || 'background');
   const ref = useRef(null);
   const [pos, setPos] = useState(loadPos);
@@ -558,7 +550,7 @@ export function Settings({ info, initialTab, onClose }) {
         <${Icon} name=${t.icon} size=${15} /> ${t.label}</button>`)}
     </div>
     <div class="settings-body" id="settings-panel" role="tabpanel" aria-labelledby=${'st-tab-' + tab} hidden=${folded}>
-      ${tab === 'background' && html`<${BackgroundTab} s=${settings} edit=${initialEdit} />`}
+      ${tab === 'background' && html`<${BackgroundTab} s=${settings} edit=${init.edit} />`}
       ${tab === 'layout' && html`<${LayoutTab} s=${settings} />`}
       ${tab === 'stickers' && html`<${StickersTab} onClose=${onClose} />`}
       ${tab === 'general' && html`<${GeneralTab} s=${settings} info=${info} />`}

@@ -1,5 +1,5 @@
 // 폼 컨트롤 (라벨 연결로 접근성 확보)
-import { html, useId, cx } from '../lib.js';
+import { html, useId, useState, useRef, useEffect, Fragment, cx } from '../lib.js';
 import { EVENT_COLORS } from '../util/color.js';
 import { useApp } from '../store.js';
 import { addSavedColor, removeSavedColor } from '../actions.js';
@@ -54,22 +54,23 @@ export function Check({ label, checked, onChange, className }) {
 }
 
 /**
- * 색 고르기. savable: 직접 고른 색을 '+' 로 저장해 두고 다음에도 쓴다 (저장한 색은 모든 savable 색상란이 함께 씀, 마우스를 올리면 × 로 삭제)
- * compact: 좁은 칸용 작은 견본
+ * 색 고르기. 직접 고른 색은 '+' 로 저장해 두고 다음에도 쓴다 (저장한 색은 모든 색상란이 함께 씀, 마우스를 올리면 × 로 삭제)
+ * compact: 좁은 칸용 작은 견본 · savable={false}: 저장 기능 끄기
  */
-export function ColorPicker({ label, value, onChange, colors = EVENT_COLORS, allowNone, noneLabel = '카테고리 색', savable, compact }) {
+export function ColorPicker({ label, value, onChange, colors = EVENT_COLORS, allowNone, noneLabel = '카테고리 색', savable = true, compact, hideLabel }) {
   const id = useId();
   const { settings } = useApp();
-  const saved = savable ? (settings.savedColors || []).filter((c) => !colors.includes(c)) : [];
+  const lower = colors.map((c) => c.toLowerCase());
+  const saved = savable ? (settings.savedColors || []).filter((c) => !lower.includes(c)) : [];
   const v = value && value.toLowerCase();
-  const canSave = savable && v && !colors.some((c) => c.toLowerCase() === v) && !saved.includes(v);
+  const canSave = savable && v && !lower.includes(v) && !saved.includes(v);
   return html`<div class=${cx('field', compact && 'swatches-compact')}>
-    <span class="field-label" id=${id}>${label}</span>
+    <span class=${cx('field-label', hideLabel && 'sr-only')} id=${id}>${label}</span>
     <div class="swatches" role="radiogroup" aria-labelledby=${id}>
       ${allowNone && html`<button type="button" role="radio" aria-checked=${String(!value)} class=${cx('swatch swatch-none', !value && 'is-on')}
         onClick=${() => onChange(null)} title=${noneLabel} aria-label=${noneLabel}></button>`}
-      ${colors.map((c) => html`<button type="button" role="radio" aria-checked=${String(value === c)} aria-label=${'색상 ' + c}
-          class=${cx('swatch', value === c && 'is-on')} style=${{ background: c }} onClick=${() => onChange(c)}></button>`)}
+      ${colors.map((c, i) => html`<button type="button" role="radio" key=${c} aria-checked=${String(v === lower[i])} aria-label=${'색상 ' + c}
+          class=${cx('swatch', v === lower[i] && 'is-on')} style=${{ background: c }} onClick=${() => onChange(c)}></button>`)}
       ${saved.map((c) => html`<span class="swatch-saved" key=${c}>
         <button type="button" role="radio" aria-checked=${String(v === c)} aria-label=${'저장한 색상 ' + c}
           class=${cx('swatch', v === c && 'is-on')} style=${{ background: c }} onClick=${() => onChange(c)}></button>
@@ -83,6 +84,38 @@ export function ColorPicker({ label, value, onChange, colors = EVENT_COLORS, all
         style=${{ '--c': v }}>+</button>`}
     </div>
   </div>`;
+}
+
+/**
+ * 색 견본 하나 (목록 줄 안의 작은 색 칸). 누르면 바로 아래 줄에 ColorPicker 가 펼쳐져 저장한 색을 고르거나 지금 색을 저장할 수 있다.
+ * 부모 줄은 flex-wrap(또는 grid) 이어야 펼친 칸이 한 줄을 다 차지한다. className: 견본 모양 (cat-color · tt-color · swatch …)
+ */
+export function ColorSwatch({ label, value, onChange, colors = EVENT_COLORS, className = 'cat-color' }) {
+  const [open, setOpen] = useState(false);
+  const btn = useRef(null);
+  const pop = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const outside = (e) => {
+      if (!pop.current || pop.current.contains(e.target) || (btn.current && btn.current.contains(e.target))) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, [open]);
+  const onKeyDown = (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    setOpen(false);
+    btn.current && btn.current.focus();
+  };
+  return html`<${Fragment}>
+    <button type="button" ref=${btn} class=${cx(className, open && 'is-open')} style=${{ background: value }} title=${label}
+      aria-label=${label + ' ' + value} aria-expanded=${String(open)} onClick=${() => setOpen(!open)}></button>
+    ${open && html`<div class="color-pop" ref=${pop} onKeyDown=${onKeyDown}>
+      <${ColorPicker} label=${label} hideLabel compact colors=${colors} value=${value} onChange=${(c) => c && onChange(c)} />
+    </div>`}
+  <//>`;
 }
 
 /** 슬라이더: 라벨과 값은 위 한 줄, 슬라이더는 아래 — 좁은 2열 배치에서도 겹치지 않는다 */

@@ -1,19 +1,14 @@
 // D-day: 캘린더에서 'D-day 표시'를 켠 일정을 보여준다. 클릭하면 캘린더 상세 팝업, 끌면 순서 변경.
 // 이름 · 날짜 옆에 아이콘 두 개(상단 · 하단, 하트 · 별 · 꽃 …)를 세로로 붙일 수 있다. 테마는 도트 · 라인 · 채움 (모양은 같이, 색은 따로).
-import { html, useMemo, useNow, useState, useRef, useEffect, useLayoutEffect, useId, bus, cx, capture } from '../lib.js';
+import { html, useMemo, useNow, useState, useRef, useEffect, useLayoutEffect, useId, bus, cx, capture, moveItem, dropIndex } from '../lib.js';
 import { useApp } from '../store.js';
 import { reorderDday, setDdayThumb } from '../actions.js';
 import { ymd, fmtKoDate } from '../util/date.js';
 import { ddayOf } from '../util/recur.js';
+import { eventColorOf } from '../util/color.js';
 import { Popup, popoverPlacement } from './Popup.js';
 import { Segmented, ColorPicker } from './controls.js';
 import { Icon } from './icons.js';
-
-/** 일정 색: 직접 고른 색 → 카테고리 색 → 기본 */
-function eventColor(ev, categories) {
-  const cat = ev.categoryId && categories.find((c) => c.id === ev.categoryId);
-  return ev.color || (cat && cat.color) || '#d9d9d9';
-}
 
 // 도트 아이콘 모양 (X = 칠한 칸). 칸 사이의 옅은 선으로 도트 느낌
 const SHAPES = {
@@ -33,7 +28,7 @@ const SHAPE_CELLS = Object.fromEntries(Object.entries(SHAPES).map(([k, s]) => [k
 }]));
 
 /** 도트 아이콘: 높이는 CSS 로, 너비는 모양 비율대로 */
-export function DotIcon({ shape = 'heart', color, className }) {
+function DotIcon({ shape = 'heart', color, className }) {
   const s = SHAPE_CELLS[shape] || SHAPE_CELLS.heart;
   return html`<svg class=${cx('dot-icon', className)} viewBox=${`0 0 ${s.w} ${s.h}`} style=${{ aspectRatio: `${s.w} / ${s.h}` }}
       aria-hidden="true" shape-rendering="crispEdges">
@@ -54,14 +49,14 @@ const VECTOR = {
   clover: 'M8.75 9.18A3.8 3.8 0 1 1 15.25 9.18A3.8 3.8 0 1 1 12.83 14.09L13 20.5H11L11.17 14.09A3.8 3.8 0 1 1 8.75 9.18z',
   ribbon: 'M12 11C9.5 8 4.5 5.5 3.5 8c-.8 2 .2 6 3 6.3 2 .2 4-1.4 5.5-3.3 1.5 1.9 3.5 3.5 5.5 3.3 2.8-.3 3.8-4.3 3-6.3-1-2.5-6 0-8.5 3zM11.2 12L8 20.5l2.2-.7L12 12.5zM12.8 12l3.2 8.5-2.2-.7L12 12.5z',
 };
-export const ICON_STYLES = [
+const ICON_STYLES = [
   { value: 'dot', label: '도트' },
   { value: 'line', label: '라인' },
   { value: 'fill', label: '채움' },
 ];
 
 /** D-DAY 아이콘: 테마(도트 · 라인 · 채움) × 모양 */
-export function DdayIcon({ shape = 'heart', variant = 'dot', color, className }) {
+function DdayIcon({ shape = 'heart', variant = 'dot', color, className }) {
   if (variant !== 'line' && variant !== 'fill') return html`<${DotIcon} shape=${shape} color=${color} className=${className} />`;
   const line = variant === 'line';
   return html`<svg class=${cx('dot-icon vec-icon', className)} viewBox="0 0 24 24" style=${{ aspectRatio: '1 / 1' }} aria-hidden="true"
@@ -110,8 +105,8 @@ export function DdayThumbField({ thumb, color, onChange }) {
         </div>
       </div>
       <div class="dday-color-cols">
-        <${ColorPicker} label="상단 아이콘" colors=${HEART_COLORS} value=${thumb.name} allowNone noneLabel="일정 색 사용" savable compact onChange=${(c) => set({ name: c })} />
-        <${ColorPicker} label="하단 아이콘" colors=${HEART_COLORS} value=${thumb.num} allowNone noneLabel="일정 색 사용" savable compact onChange=${(c) => set({ num: c })} />
+        <${ColorPicker} label="상단 아이콘" colors=${HEART_COLORS} value=${thumb.name} allowNone noneLabel="일정 색 사용" compact onChange=${(c) => set({ name: c })} />
+        <${ColorPicker} label="하단 아이콘" colors=${HEART_COLORS} value=${thumb.num} allowNone noneLabel="일정 색 사용" compact onChange=${(c) => set({ num: c })} />
       </div>`}
   </div>`;
 }
@@ -132,17 +127,15 @@ function DdayLabel({ label }) {
   return m ? html`${m[1]}<span class="dday-suffix">${m[2]}</span>` : label;
 }
 
+const realItems = (list) => [...list.children].filter((c) => !c.classList.contains('is-clone'));
+
 /** 끌어서 순서 바꾸기: 가로·세로 나열 모두 (목록 방향은 화면에 그려진 대로 읽는다) */
 function useReorder(items) {
   const [drag, setDrag] = useState(null); // { from, to }
   const moved = useRef(false);
 
   function commit(from, to) {
-    if (from === to) return;
-    const ids = items.map((x) => x.ev.id);
-    const [id] = ids.splice(from, 1);
-    ids.splice(to, 0, id);
-    reorderDday(ids);
+    if (from !== to) reorderDday(moveItem(items.map((x) => x.ev.id), from, to));
   }
   function start(e, index) {
     if (e.button !== 0) return;
@@ -155,14 +148,7 @@ function useReorder(items) {
     capture(el, e);
     const move = (ev) => {
       if (!state && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return; // 조금 흔들린 건 클릭
-      const p = vertical ? ev.clientY : ev.clientX;
-      const rows = [...list.children].filter((r) => !r.classList.contains('is-clone'));
-      let to = rows.findIndex((r) => {
-        const b = r.getBoundingClientRect();
-        return p < (vertical ? b.top + b.height / 2 : b.left + b.width / 2);
-      });
-      if (to < 0) to = rows.length - 1;
-      else if (to > index) to -= 1;
+      const to = dropIndex(realItems(list), index, vertical ? ev.clientY : ev.clientX, vertical);
       if (!state || state.to !== to) {
         state = { from: index, to };
         setDrag(state);
@@ -211,7 +197,7 @@ function useFlow(listRef, items, speed) {
     if (!list) return setFlow(null);
     const measure = () => {
       const vertical = getComputedStyle(list).flexDirection === 'column';
-      const real = [...list.children].filter((c) => !c.classList.contains('is-clone'));
+      const real = realItems(list);
       if (!real.length) return setFlow(null);
       const a = real[0].getBoundingClientRect();
       const b = real[real.length - 1].getBoundingClientRect();
@@ -227,7 +213,7 @@ function useFlow(listRef, items, speed) {
   useEffect(() => {
     const list = listRef.current;
     if (!flow || !list) return undefined;
-    const real = [...list.children].filter((c) => !c.classList.contains('is-clone'));
+    const real = realItems(list);
     const clone = list.querySelector('.is-clone');
     if (!real.length || !clone) return undefined;
     const loop = flow === 'y' ? clone.offsetTop - real[0].offsetTop : clone.offsetLeft - real[0].offsetLeft;
@@ -279,6 +265,18 @@ export function DDay() {
   const { flow, pause } = useFlow(listRef, items, settings.ddaySpeed ?? settings.tickerSpeed);
   const dir = settings.ddayDirection || 'auto';
   const styled = styling && items.find((x) => x.ev.id === styling.id);
+  const colorOf = eventColorOf(categories, '#d9d9d9');
+  const open = (ev, d) => bus.emit('calendar:open', { type: 'detail', eventId: ev.id, date: d.target });
+  const body = (ev, d) => {
+    const heart = ev.ddayThumb && ev.ddayThumb.type === 'heart' ? ev.ddayThumb : null;
+    return html`<span class=${cx('dday-text', heart && 'has-icon')}>
+      ${heart && html`<${DdayIcons} thumb=${heart} color=${colorOf(ev)} />`}
+      <span class="dday-lines">
+        <span class="dday-name">${ev.title}</span>
+        <span class="dday-num"><${DdayLabel} label=${d.label} /></span>
+      </span>
+    </span>`;
+  };
 
   // 휠로 넘겨 보기: 가로 나열은 세로 휠을 옆으로, 세로 나열은 위아래로 (흐르는 중엔 마우스를 올리면 멈추므로 그 자리에서 이어 흐른다)
   function onWheel(e) {
@@ -299,43 +297,21 @@ export function DDay() {
     ${items.length ? html`<ul class=${cx('dday-list', flow && 'is-flowing flow-' + flow)} onWheel=${onWheel} ref=${listRef} ...${pause}>
       ${items.map(({ ev, d }, i) => {
         const dr = reorder.drag;
-        const color = eventColor(ev, categories);
-        const heart = ev.ddayThumb && ev.ddayThumb.type === 'heart' ? ev.ddayThumb : null;
         return html`<li key=${ev.id} class=${cx('dday-li', dr && dr.from === i && 'is-dragging', dr && dr.to === i && dr.from !== i && (dr.to < dr.from ? 'drop-before' : 'drop-after'))}>
           <button type="button" class="dday-item"
             onPointerDown=${(e) => reorder.start(e, i)} onKeyDown=${(e) => reorder.onKey(e, i)}
-            onClick=${() => reorder.clickOk() && bus.emit('calendar:open', { type: 'detail', eventId: ev.id, date: d.target })}
-            aria-label=${`${ev.title} ${d.label}, ${fmtKoDate(d.target)}. 끌거나 Alt+방향키로 순서 변경`}>
-            <span class=${cx('dday-text', heart && 'has-icon')}>
-              ${heart && html`<${DdayIcons} thumb=${heart} color=${color} />`}
-              <span class="dday-lines">
-                <span class="dday-name">${ev.title}</span>
-                <span class="dday-num"><${DdayLabel} label=${d.label} /></span>
-              </span>
-            </span>
-          </button>
+            onClick=${() => reorder.clickOk() && open(ev, d)}
+            aria-label=${`${ev.title} ${d.label}, ${fmtKoDate(d.target)}. 끌거나 Alt+방향키로 순서 변경`}>${body(ev, d)}</button>
           <button type="button" class="dday-edit" aria-label=${ev.title + ' 아이콘 꾸미기'} title="D-DAY 아이콘"
             onClick=${() => setStyling({ id: ev.id, placement: popoverPlacement(ref.current, 20) })}>
             <${Icon} name="palette" size=${13} />
           </button>
         </li>`;
       })}
-      ${flow && items.map(({ ev, d }) => {
-        const color = eventColor(ev, categories);
-        const heart = ev.ddayThumb && ev.ddayThumb.type === 'heart' ? ev.ddayThumb : null;
-        return html`<li key=${'clone-' + ev.id} class="dday-li is-clone" aria-hidden="true">
-          <button type="button" class="dday-item" tabindex="-1" onClick=${() => bus.emit('calendar:open', { type: 'detail', eventId: ev.id, date: d.target })}>
-            <span class=${cx('dday-text', heart && 'has-icon')}>
-              ${heart && html`<${DdayIcons} thumb=${heart} color=${color} />`}
-              <span class="dday-lines">
-                <span class="dday-name">${ev.title}</span>
-                <span class="dday-num"><${DdayLabel} label=${d.label} /></span>
-              </span>
-            </span>
-          </button>
-        </li>`;
-      })}
+      ${flow && items.map(({ ev, d }) => html`<li key=${'clone-' + ev.id} class="dday-li is-clone" aria-hidden="true">
+        <button type="button" class="dday-item" tabindex="-1" onClick=${() => open(ev, d)}>${body(ev, d)}</button>
+      </li>`)}
     </ul>` : html`<p class="dday-empty">표시할 D-day가 없습니다.</p>`}
-    ${styled && html`<${DdayStyle} ev=${styled.ev} color=${eventColor(styled.ev, categories)} placement=${styling.placement} onClose=${() => setStyling(null)} />`}
+    ${styled && html`<${DdayStyle} ev=${styled.ev} color=${colorOf(styled.ev)} placement=${styling.placement} onClose=${() => setStyling(null)} />`}
   </section>`;
 }

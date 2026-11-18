@@ -1,8 +1,6 @@
 // 레이아웃 조립: 12 x 20 격자 위에서 위젯을 끌어 옮기고(이동) 모서리로 크기를 바꾼다.
 import { html, useState, useRef, useSize, cx, capture } from '../lib.js';
-import { GRID, WIDGETS } from '../store.js';
-
-export const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+import { GRID, WIDGETS, overlaps } from '../store.js';
 
 function clampBox(box) {
   const [mw, mh] = WIDGETS[box.id].min;
@@ -60,7 +58,7 @@ function edgeSteps(pos, len, min, max, d, side) {
  * 크기 조절: dir 의 가장자리(n·s·e·w, 모서리는 둘을 합친 se 등)만 움직이고 반대쪽은 고정한다.
  * 화면 끝이나 다른 위젯에 닿으면 거기까지만 늘린다. 다른 위젯은 건드리지 않는다.
  */
-export function fitResize(layout, item, dir, dx, dy) {
+function fitResize(layout, item, dir, dx, dy) {
   const [mw, mh] = WIDGETS[item.id].min;
   const h = edgeSteps(item.x, item.w, mw, GRID.cols, dx, dir.includes('e') ? 'end' : dir.includes('w') ? 'start' : null);
   const v = edgeSteps(item.y, item.h, mh, GRID.rows, dy, dir.includes('s') ? 'end' : dir.includes('n') ? 'start' : null);
@@ -100,7 +98,7 @@ const noOverlap = (layout) => layout.every((a, i) => !a.visible || (inGrid(a) &&
  * 1) 포인터(point) 아래 위젯과 자리 맞바꾸기  2) 놓은 자리에 두고 밀려난 위젯은 원래 자리 근처 빈 곳으로(크기 유지)
  * 둘 다 안 되면 null. 결과에 swapped(맞바꾼 위젯 id) 를 붙인다.
  */
-export function arrange(layout, box, point) {
+function arrange(layout, box, point) {
   const me = layout.find((l) => l.id === box.id);
   const apply = (changes) => layout.map((l) => (changes[l.id] ? { ...l, ...changes[l.id] } : l));
   const others = layout.filter((o) => o.id !== box.id && o.visible);

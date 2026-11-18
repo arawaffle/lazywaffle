@@ -9,6 +9,8 @@ export const WIDGETS = {
   pomodoro: { name: '뽀모도로 타이머', min: [3, 2] },
   dday: { name: 'D-DAY', min: [2, 2] },
   ticker: { name: '오늘의 일정 전광판', min: [3, 1] },
+  goalWeek: { name: '이번 주 목표 전광판', min: [3, 1] },
+  goalMonth: { name: '이번 달 목표 전광판', min: [3, 1] },
   calendar: { name: '캘린더', min: [5, 7] },
   checklist: { name: '체크리스트', min: [2, 5] },
   memo: { name: '메모', min: [3, 4] },
@@ -20,7 +22,9 @@ export const WIDGETS = {
 export const DEFAULT_LAYOUT = [
   { id: 'pomodoro', x: 0, y: 0, w: 4, h: 2, visible: true },
   { id: 'dday', x: 8, y: 0, w: 4, h: 2, visible: true },
-  { id: 'ticker', x: 0, y: 2, w: 12, h: 1, visible: true },
+  { id: 'ticker', x: 0, y: 2, w: 4, h: 1, visible: true },
+  { id: 'goalWeek', x: 4, y: 2, w: 4, h: 1, visible: true },
+  { id: 'goalMonth', x: 8, y: 2, w: 4, h: 1, visible: true },
   { id: 'calendar', x: 0, y: 3, w: 8, h: 10, visible: true },
   { id: 'checklist', x: 8, y: 3, w: 4, h: 10, visible: true },
   { id: 'memo', x: 0, y: 13, w: 5, h: 7, visible: true },
@@ -31,16 +35,20 @@ export const DEFAULT_LAYOUT = [
 
 /** 배너가 위/아래일 때(가로로 넓은 콘텐츠): 캘린더 · 체크리스트 · 메모를 3열로 */
 export const DEFAULT_LAYOUT_WIDE = [
-  { id: 'pomodoro', x: 0, y: 0, w: 3, h: 3, visible: true },
-  { id: 'ticker', x: 3, y: 0, w: 6, h: 3, visible: true },
-  { id: 'dday', x: 9, y: 0, w: 3, h: 3, visible: true },
-  { id: 'calendar', x: 0, y: 3, w: 5, h: 17, visible: true },
-  { id: 'checklist', x: 5, y: 3, w: 4, h: 11, visible: true },
+  { id: 'pomodoro', x: 0, y: 0, w: 6, h: 3, visible: true },
+  { id: 'dday', x: 6, y: 0, w: 6, h: 3, visible: true },
+  { id: 'ticker', x: 0, y: 3, w: 4, h: 2, visible: true },
+  { id: 'goalWeek', x: 4, y: 3, w: 4, h: 2, visible: true },
+  { id: 'goalMonth', x: 8, y: 3, w: 4, h: 2, visible: true },
+  { id: 'calendar', x: 0, y: 5, w: 5, h: 15, visible: true },
+  { id: 'checklist', x: 5, y: 5, w: 4, h: 9, visible: true },
   { id: 'timetable', x: 5, y: 14, w: 4, h: 6, visible: true },
-  { id: 'memo', x: 9, y: 3, w: 3, h: 14, visible: true },
+  { id: 'memo', x: 9, y: 5, w: 3, h: 12, visible: true },
   { id: 'links', x: 9, y: 17, w: 3, h: 3, visible: true },
   { id: 'ledger', x: 5, y: 14, w: 4, h: 6, visible: false },
 ];
+
+export const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /** 현재 배너 위치에 맞는 레이아웃 키 (배너 위치마다 배치를 따로 기억한다) */
 export function layoutKey(settings) {
@@ -49,7 +57,7 @@ export function layoutKey(settings) {
 
 const DEFAULT_FILL = { type: 'color', color: '#d9d9d9', image: null, fit: 'cover', posX: 50, posY: 50 };
 
-export const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS = {
   theme: 'light',
   weekStart: 0,
   banner: { position: 'left', size: 36, fill: { ...DEFAULT_FILL } },
@@ -59,6 +67,7 @@ export const DEFAULT_SETTINGS = {
   layoutWide: DEFAULT_LAYOUT_WIDE,
   hiddenCategories: [],
   tickerSpeed: 50,
+  tickerColors: {}, // 전광판별 배경색 { ticker | goalWeek | goalMonth: '#rrggbb' } (없으면 기본 색)
   linksBg: true,
   calendarView: 'month',
   showHolidays: true,
@@ -66,10 +75,11 @@ export const DEFAULT_SETTINGS = {
   showCompletedToday: true,
   ddayDirection: 'auto', // D-DAY 나열 방향: auto(위젯 모양에 맞춤) · row · column
   ledgerOnCalendar: true, // 용돈기입장 하루 합계를 캘린더 날짜에 표시
+  eventOpacity: 100, // 캘린더 일정 배경 불투명도(%) — 모든 일정에 일괄 적용
 };
 
 /** 타임테이블: 요일 묶음(평일·주말 등)마다 일과 목록. 한 요일은 한 묶음에만 속한다 */
-export const DEFAULT_TIMETABLE = {
+const DEFAULT_TIMETABLE = {
   view: 'bar',
   showEvents: true,
   groups: [{
@@ -86,7 +96,7 @@ export const DEFAULT_TIMETABLE = {
   }],
 };
 
-export const DEFAULT_POMODORO = {
+const DEFAULT_POMODORO = {
   focus: 25, short: 5, long: 15, longEvery: 4, autoNext: false, sound: true,
   phase: 'focus', running: false, endAt: 0, remaining: 25 * 60000, round: 1, doneCount: 0, doneDate: '',
 };
@@ -116,7 +126,7 @@ function sampleData() {
   };
 }
 
-export function defaultState() {
+function defaultState() {
   return {
     version: 1,
     settings: structuredClone(DEFAULT_SETTINGS),
@@ -133,6 +143,7 @@ export function defaultState() {
     timetable: structuredClone(DEFAULT_TIMETABLE),
     ddayOrder: [], // D-DAY 위젯에서 끌어 정한 순서 (일정 id). 없는 일정은 가까운 날 순으로 뒤에
     ledger: [], // 용돈기입장 { id, date, amount, memo, method: card|check|cash(현금/페이), type: out|in|save(저축) }
+    goals: [], // 이번 주 · 이번 달 목표 { id, scope: week|month, text, date(적은 날) }
     dayImages: {}, // 캘린더 날짜 칸 이미지 { 'YYYY-MM-DD': { image, view, fit, size, pos, tone(자동 글자색), ink(직접 고른 글자색 | null) } }
     ...sampleData(),
   };
@@ -163,8 +174,7 @@ function migrate(saved) {
     for (const d of defaults) {
       if (layout.length && !layout.some((l) => l.id === d.id)) {
         const me = s.settings[key].find((l) => l.id === d.id);
-        const hit = s.settings[key].some((o) => o.id !== d.id && o.visible && o.x < me.x + me.w && me.x < o.x + o.w && o.y < me.y + me.h && me.y < o.y + o.h);
-        if (hit) me.visible = false;
+        if (s.settings[key].some((o) => o.id !== d.id && o.visible && overlaps(o, me))) me.visible = false;
       }
     }
   }
@@ -195,7 +205,7 @@ export function getState() {
   return state;
 }
 
-export function setState(next, { persist = true } = {}) {
+function setState(next, { persist = true } = {}) {
   state = next;
   subs.forEach((fn) => fn(state));
   if (persist) {

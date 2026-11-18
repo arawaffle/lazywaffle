@@ -68,6 +68,22 @@ export function useNow(interval = 30000) {
   return now;
 }
 
+/** 목록의 from 번째를 to 번째로 옮긴 새 배열 */
+export function moveItem(list, from, to) {
+  const out = [...list];
+  out.splice(to, 0, out.splice(from, 1)[0]);
+  return out;
+}
+
+/** 끌어서 순서 바꾸기: 포인터(p)가 가운데를 넘지 않은 첫 줄 = 놓일 자리 (from 줄을 뺀 뒤의 순번) */
+export function dropIndex(rows, from, p, vertical = true) {
+  const to = rows.findIndex((r) => {
+    const b = r.getBoundingClientRect();
+    return p < (vertical ? b.top + b.height / 2 : b.left + b.width / 2);
+  });
+  return to < 0 ? rows.length - 1 : to > from ? to - 1 : to;
+}
+
 /** 포인터 캡처 (이미 사라진 포인터 등으로 실패해도 드래그 처리는 계속되게) */
 export function capture(el, e) {
   try {

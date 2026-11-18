@@ -52,7 +52,7 @@ export function release(key) {
   if (!holds.delete(key)) return;
   sync();
 }
-export function requestKeyboard() {
+function requestKeyboard() {
   if (shell && mode === 'wallpaper') shell.requestFocus();
 }
 export function releaseAll() {
@@ -62,15 +62,24 @@ export function releaseAll() {
 }
 
 const NON_TEXT = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image']);
-export function isTextField(el) {
+function isTextField(el) {
   if (!el || el.nodeType !== 1) return false;
   if (el.isContentEditable) return true;
   if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
   return el.tagName === 'INPUT' && !NON_TEXT.has(el.type);
 }
 
+// 선택된 입력란이 화면에서 사라지면(focusout 이 오지 않는다) 보류가 남아 편집 모드가 끝나지 않으므로, 잡고 있는 동안 확인한다
+let fieldWatch = null;
 document.addEventListener('focusin', (e) => {
-  if (isTextField(e.target)) hold('text-field');
+  if (!isTextField(e.target)) return;
+  hold('text-field');
+  clearInterval(fieldWatch);
+  fieldWatch = setInterval(() => {
+    if (holds.has('text-field') && isTextField(document.activeElement)) return;
+    clearInterval(fieldWatch);
+    release('text-field');
+  }, 1000);
 });
 document.addEventListener('focusout', () => {
   setTimeout(() => {

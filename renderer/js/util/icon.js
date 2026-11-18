@@ -6,7 +6,7 @@ import { useState, useEffect } from '../lib.js';
 
 const cache = new Map();
 
-function load(src) {
+export function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -17,7 +17,7 @@ function load(src) {
 
 /** 정사각 타일(px) 에 맞춘 아이콘: { url, small, scale } */
 async function build(src, target) {
-  const img = await load(src);
+  const img = await loadImage(src);
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
   const side = Math.min(nw, nh);
@@ -86,6 +86,6 @@ export function useCrispIcon(src, cssSize) {
 
 /** 아이콘 이미지 정보 (설정 화면의 크기 안내용) */
 export async function imageSize(src) {
-  const img = await load(src);
+  const img = await loadImage(src);
   return { w: img.naturalWidth, h: img.naturalHeight };
 }

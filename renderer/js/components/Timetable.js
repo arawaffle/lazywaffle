@@ -5,9 +5,9 @@ import { html, useState, useRef, useMemo, useNow, useSize, cx, uid, bus } from '
 import { useApp, update } from '../store.js';
 import { ymd, pad, WEEK_KO } from '../util/date.js';
 import { occurrences } from '../util/recur.js';
-import { EVENT_COLORS, readableOn } from '../util/color.js';
+import { EVENT_COLORS, readableOn, eventColorOf } from '../util/color.js';
 import { Popup, popoverPlacement } from './Popup.js';
-import { Toggle } from './controls.js';
+import { Toggle, ColorSwatch } from './controls.js';
 import { Icon, IconButton } from './icons.js';
 
 const DAY = 1440;
@@ -50,12 +50,12 @@ function useItems() {
   const items = useMemo(() => {
     const blocks = ((group && group.blocks) || []).map((b) => ({ ...b, kind: 'block' }));
     if (!timetable.showEvents) return blocks;
-    const cat = Object.fromEntries(categories.map((c) => [c.id, c]));
+    const colorOf = eventColorOf(categories, '#cdeefc');
     const evs = occurrences(events, today, today, settings.hiddenCategories)
       .filter((o) => o.ev.allDay === false && o.ev.startTime)
       .map((o) => ({
         id: o.key, label: o.ev.title, start: o.ev.startTime, end: o.ev.endTime || fmt(Math.min(DAY - 1, toMin(o.ev.startTime) + 60)),
-        color: o.ev.color || (cat[o.ev.categoryId] && cat[o.ev.categoryId].color) || '#cdeefc', kind: 'event', eventId: o.ev.id, date: o.start,
+        color: colorOf(o.ev), kind: 'event', eventId: o.ev.id, date: o.start,
       }));
     return [...blocks, ...evs];
   }, [group, timetable.showEvents, events, categories, settings.hiddenCategories, today]);
@@ -228,8 +228,7 @@ function Editor({ onClose, placement }) {
       </div>`}
       <ul class="tt-edit">
         ${g.blocks.map((b, i) => html`<li key=${b.id}>
-          <label class="tt-color" style=${{ background: b.color }} title="색상"><span class="sr-only">${b.label || i + 1} 색상</span>
-            <input type="color" value=${b.color} onInput=${(e) => patchBlock(b.id, { color: e.currentTarget.value })} /></label>
+          <${ColorSwatch} className="tt-color" label=${(b.label || i + 1) + ' 색상'} value=${b.color} onChange=${(color) => patchBlock(b.id, { color })} />
           <label class="sr-only" for=${'tl-' + b.id}>이름</label>
           <input id=${'tl-' + b.id} class="input input-sm" value=${b.label} placeholder="예: 업무" onInput=${(e) => patchBlock(b.id, { label: e.currentTarget.value })} />
           <label class="sr-only" for=${'ts-' + b.id}>시작</label>

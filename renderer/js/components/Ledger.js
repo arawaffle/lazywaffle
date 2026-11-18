@@ -24,6 +24,12 @@ const PLACEHOLDER = { out: '예) 점심, 교통비', in: '예) 용돈, 알바비
 const won = (n) => n.toLocaleString('ko-KR');
 const MAX_AMOUNT = 9999999999;
 const toAmount = (s) => Math.min(MAX_AMOUNT, +s.replace(/[^\d]/g, '') || 0);
+/** 금액 입력칸: 숫자만 받아 천 단위 쉼표를 붙여 보여준다 */
+const onAmountInput = (set) => (e) => {
+  const n = toAmount(e.currentTarget.value);
+  set(n);
+  e.currentTarget.value = n ? won(n) : '';
+};
 
 /** 기록 목록 합계: 수입 · 지출 · 저축 + 결제 수단별 지출 */
 function sumOf(list) {
@@ -64,11 +70,7 @@ function EntryForm({ entry, placement, onClose }) {
         onInput=${(e) => set({ date: e.currentTarget.value })} />`}<//>
       <${Field} label="금액 (원)">${(id) => html`<input id=${id} class="input num lg-amount" inputmode="numeric" autocomplete="off"
         value=${f.amount ? won(f.amount) : ''} placeholder="0" data-autofocus
-        onInput=${(e) => {
-          const n = toAmount(e.currentTarget.value);
-          set({ amount: n });
-          e.currentTarget.value = n ? won(n) : '';
-        }} />`}<//>
+        onInput=${onAmountInput((amount) => set({ amount }))} />`}<//>
       <${Field} label="쓰임새">${(id) => html`<input id=${id} class="input" maxlength="40" value=${f.memo} placeholder=${PLACEHOLDER[f.type]}
         onInput=${(e) => set({ memo: e.currentTarget.value })} />`}<//>
       ${f.type === 'out' && html`<${Segmented} label="결제 수단" value=${f.method} onChange=${(method) => set({ method })} options=${METHODS} />`}
@@ -127,11 +129,7 @@ function MultiEntryForm({ date: initialDate, placement, onClose }) {
             </select>
             <input class="input input-sm num lg-amount" inputmode="numeric" autocomplete="off" aria-label=${`${i + 1}번째 금액 (원)`}
               value=${r.amount ? won(r.amount) : ''} placeholder="0" data-autofocus=${i === 0 ? '' : undefined}
-              onInput=${(e) => {
-                const n = toAmount(e.currentTarget.value);
-                setRow(r.key, { amount: n });
-                e.currentTarget.value = n ? won(n) : '';
-              }} />
+              onInput=${onAmountInput((amount) => setRow(r.key, { amount }))} />
             <input class="input input-sm lg-mmemo" maxlength="40" aria-label=${`${i + 1}번째 쓰임새`} value=${r.memo} placeholder=${PLACEHOLDER[r.type]}
               onInput=${(e) => setRow(r.key, { memo: e.currentTarget.value })} />
             ${r.type !== 'out' ? html`<span class="lg-mmethod lg-mnone muted" aria-hidden="true">—</span>`
@@ -222,7 +220,7 @@ export function Ledger() {
   function open(entry) {
     // 위젯이 작으면 옆에, 넉넉하면 위젯 안에 띄운다 (여러 줄 추가 창은 더 넓게)
     // n: 열 때마다 새 폼 (열린 채로 다시 눌러도 이전 입력이 남지 않게)
-    const placement = entry ? popoverPlacement(ref.current, 20, 22) : popoverPlacement(ref.current, 30, 22);
+    const placement = popoverPlacement(ref.current, entry ? 20 : 30, 22);
     setForm((v) => ({ entry, date: isThisMonth ? today : `${key}-01`, placement, n: (v ? v.n : 0) + 1 }));
   }
   const go = (n) => (view === 'year' ? setYm((v) => ({ ...v, year: v.year + n })) : setYm((v) => addMonths(v.year, v.month, n)));

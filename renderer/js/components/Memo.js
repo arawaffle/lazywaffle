@@ -1,10 +1,11 @@
 // 메모: 즐겨찾기한 메모가 있으면 그 메모(여러 개면 화살표 · 점으로 넘겨 보는 슬라이드)를, 없으면 에디터를 첫 화면으로 보여준다.
 // 목록에서 제목 옆 연필(마우스를 올리면 보임)로 제목을 고칠 수 있다 (비우면 첫 줄이 제목). 에디터의 이미지는 눌러서 크기를 바꾼다.
-import { html, useState, useEffect, useRef, cx } from '../lib.js';
+import { html, useState, useEffect, useRef, cx, capture } from '../lib.js';
 import { useApp } from '../store.js';
 import { saveMemo, deleteMemo, toggleFavMemo, renameMemo, setMemoDraft } from '../actions.js';
 import { pickImageFile, storeImage } from '../storage.js';
 import { fmtDate, ymd } from '../util/date.js';
+import { hold, release } from '../focus.js';
 import { Confirm } from './Popup.js';
 import { Icon, IconButton } from './icons.js';
 
@@ -20,7 +21,7 @@ const ALIGN_TAGS = new Set(['P', 'DIV', 'H3', 'BLOCKQUOTE', 'LI']);
 const ALIGNS = new Set(['center', 'right', 'justify']);
 
 /** 허용된 태그만 남기고 속성은 모두 제거 (이미지는 허용된 src와 너비, 문단은 정렬만 남긴다) */
-export function sanitize(dirty) {
+function sanitize(dirty) {
   const doc = new DOMParser().parseFromString(`<body>${dirty}</body>`, 'text/html');
   const walk = (node) => {
     [...node.childNodes].forEach((child) => {
@@ -107,7 +108,7 @@ function ImageSizer({ img, area, onChange }) {
     e.preventDefault();
     e.stopPropagation();
     const el = e.currentTarget;
-    try { el.setPointerCapture(e.pointerId); } catch { /* 캡처 없이도 동작 */ }
+    capture(el, e);
     const sx = e.clientX;
     const sw = img.getBoundingClientRect().width;
     const aw = areaWidth();
@@ -303,9 +304,12 @@ function Editor({ initial, onSave, onCancel, onDraft }) {
 function RenameInput({ memo, onDone }) {
   const done = useRef(false);
   const inputRef = useRef(null);
+  // 바탕화면 모드에서도 바로 입력할 수 있게, 떠 있는 동안 편집 모드를 잡아 둔다
   useEffect(() => {
+    hold('memo-rename');
     inputRef.current.focus();
     inputRef.current.select();
+    return () => release('memo-rename');
   }, []);
   const finish = (save, value) => {
     if (done.current) return;
@@ -319,7 +323,10 @@ function RenameInput({ memo, onDone }) {
       if (e.key === 'Enter') { e.preventDefault(); finish(true, e.currentTarget.value); }
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
     }}
-    onBlur=${(e) => finish(true, e.currentTarget.value)} />`;
+    onBlur=${(e) => {
+      // 편집 모드로 올라오는 동안 창 포커스만 잠깐 빠진 경우(입력칸은 그대로 선택됨)에는 닫지 않는다
+      if (document.activeElement !== e.currentTarget) finish(true, e.currentTarget.value);
+    }} />`;
 }
 
 /**
@@ -438,7 +445,7 @@ export function Memo() {
                   onKeyDown=${(e) => { if (e.key === 'F2') { e.preventDefault(); setRenaming(m.id); } }}>
                 <span class="memo-item-title">${memoTitle(m)}</span>
               </button>
-              <${IconButton} icon="edit" size=${13} label="제목 수정" className="memo-rename-btn" onClick=${() => setRenaming(m.id)} />
+              <${IconButton} icon="edit" size=${13} label="제목 수정" className="memo-rename-btn" data-keyboard onClick=${() => setRenaming(m.id)} />
               <span class="memo-date muted num">${fmtDate(ymd(new Date(m.updatedAt)), { week: false })}</span>`}
             <${IconButton} icon="star" filled=${fav} pressed=${fav} className=${cx('star', fav && 'is-on')}
               label=${fav ? '즐겨찾기 해제' : '즐겨찾기 (메인에서 보기)'} onClick=${() => toggleFavMemo(m.id)} />

@@ -65,6 +65,9 @@ export function fmtDate(s, { year = true, week = true } = {}) {
   return week ? `${base} (${WEEK_KO[d.getDay()]})` : base;
 }
 
+/** 'YYYY-MM-DD' → 'MM.DD' */
+export const fmtMD = (s) => s.slice(5).replace('-', '.');
+
 export function fmtKoDate(s) {
   const d = parse(s);
   return `${d.getMonth() + 1}월 ${d.getDate()}일 ${WEEK_KO_LONG[d.getDay()]}`;
@@ -74,6 +77,9 @@ export function ddayLabel(diff) {
   if (diff === 0) return 'D-DAY';
   return diff > 0 ? `D-${diff}` : `D+${-diff}`;
 }
+
+/** 목표가 속한 기간: 주 목표는 그 주의 첫날, 달 목표는 'YYYY-MM' */
+export const goalPeriod = (scope, s, weekStart) => (scope === 'week' ? weekStartOf(s, weekStart) : s.slice(0, 7));
 
 export function monthKey(s) {
   return s.slice(0, 7);

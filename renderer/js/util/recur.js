@@ -3,11 +3,13 @@
 import { addDays, diffDays, dow, parse, weekStartOf, WEEK_KO, fmtDate, ddayLabel } from './date.js';
 
 export const KIND_LABEL = { single: '단기 일정', range: '장기 일정', repeat: '반복 일정', anniversary: '기념일' };
+export const KIND_OPTIONS = [
+  { value: 'single', label: '단기' },
+  { value: 'range', label: '장기' },
+  { value: 'repeat', label: '반복' },
+  { value: 'anniversary', label: '기념일' },
+];
 export const FREQ_LABEL = { daily: '매일', weekly: '매주', biweekly: '격주', monthly: '매월', yearly: '매년' };
-
-function sameMonthDay(a, b) {
-  return a.slice(5) === b.slice(5);
-}
 
 /** 해당 날짜가 반복 일정의 발생일인지 */
 function repeatMatches(ev, date) {
@@ -18,24 +20,20 @@ function repeatMatches(ev, date) {
     case 'daily':
       return true;
     case 'weekly':
-      return (r.days && r.days.length ? r.days : [dow(ev.start)]).includes(dow(date));
-    case 'biweekly': {
-      const days = r.days && r.days.length ? r.days : [dow(ev.start)];
-      if (!days.includes(dow(date))) return false;
-      const weeks = diffDays(weekStartOf(ev.start), weekStartOf(date)) / 7;
-      return weeks % 2 === 0;
-    }
+    case 'biweekly':
+      if (!(r.days && r.days.length ? r.days : [dow(ev.start)]).includes(dow(date))) return false;
+      return r.freq === 'weekly' || (diffDays(weekStartOf(ev.start), weekStartOf(date)) / 7) % 2 === 0;
     case 'monthly':
       return parse(date).getDate() === parse(ev.start).getDate();
     case 'yearly':
-      return sameMonthDay(date, ev.start);
+      return date.slice(5) === ev.start.slice(5);
     default:
       return false;
   }
 }
 
 /** 이벤트의 [from, to] 구간 발생 목록: { ev, start, end, key } */
-export function expand(ev, from, to) {
+function expand(ev, from, to) {
   const out = [];
   const ex = new Set(ev.exdates || []);
   const push = (start, end) => {
@@ -76,7 +74,7 @@ export function occurrences(events, from, to, hiddenCategories = []) {
   return list.sort(compareOcc);
 }
 
-export function compareOcc(a, b) {
+function compareOcc(a, b) {
   const la = diffDays(a.start, a.end);
   const lb = diffDays(b.start, b.end);
   if (a.start !== b.start) return a.start < b.start ? -1 : 1;

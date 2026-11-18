@@ -11,7 +11,7 @@ import { Checklist } from './Checklist.js';
 import { Memo } from './Memo.js';
 import { Pomodoro } from './Pomodoro.js';
 import { DDay } from './DDay.js';
-import { Ticker } from './Ticker.js';
+import { Ticker, GoalWeek, GoalMonth } from './Ticker.js';
 import { Links, FreeLinks } from './Links.js';
 import { Timetable } from './Timetable.js';
 import { Ledger } from './Ledger.js';
@@ -83,7 +83,7 @@ function useMeshTones(s, contentRef) {
   return on ? tones : {};
 }
 
-const COMPONENTS = { calendar: Calendar, checklist: Checklist, memo: Memo, pomodoro: Pomodoro, dday: DDay, ticker: Ticker, links: Links, timetable: Timetable, ledger: Ledger };
+const COMPONENTS = { calendar: Calendar, checklist: Checklist, memo: Memo, pomodoro: Pomodoro, dday: DDay, ticker: Ticker, goalWeek: GoalWeek, goalMonth: GoalMonth, links: Links, timetable: Timetable, ledger: Ledger };
 
 function useShellInfo() {
   const [info, setInfo] = useState(null);

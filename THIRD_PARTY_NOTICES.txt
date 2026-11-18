@@ -1,4 +1,4 @@
-LazyWaffle v1.2.0 - Third-Party Notices (제3자 구성 요소 고지)
+LazyWaffle v1.2.1 - Third-Party Notices (제3자 구성 요소 고지)
 
 이 앱에는 아래 오픈소스 소프트웨어와 글꼴이 포함되어 있습니다. 각 구성 요소의 저작권은 해당 저작권자에게 있으며,
 아래에 적힌 라이선스에 따라 사용 · 재배포됩니다.

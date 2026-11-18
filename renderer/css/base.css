@@ -261,8 +261,7 @@ select.input { padding-right: .3rem; }
 .swatch.is-on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .swatch-none { background: repeating-linear-gradient(45deg, var(--bg) 0 4px, var(--surface-2) 4px 8px); }
 .swatch-custom { background: conic-gradient(#f88, #fd8, #8f8, #8df, #a8f, #f8c, #f88); cursor: pointer; overflow: hidden; }
-.swatch-edit { cursor: pointer; overflow: hidden; }
-.swatch-custom input, .swatch-edit input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.swatch-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
 
 .swatch-saved { position: relative; display: inline-flex; }
 .swatch-del {
@@ -278,6 +277,14 @@ select.input { padding-right: .3rem; }
 .swatches-compact .swatches { gap: .25rem; }
 .swatches-compact .swatch { width: 1.15rem; height: 1.15rem; }
 .swatches-compact .swatch-add { font-size: .72rem; }
+/* 색 견본 하나(ColorSwatch)를 누르면 아래 줄에 펼쳐지는 색 고르기 */
+.is-open:is(.swatch, .cat-color, .tt-color) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.color-pop {
+  order: 99; flex: 1 0 100%; grid-column: 1 / -1; min-width: 0; /* 줄 맨 끝 한 줄 전체 */
+  padding: .45rem .5rem; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+  animation: fade-in .12s ease;
+}
 
 .range-field { gap: .15rem; min-width: 0; }
 .range-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
@@ -319,6 +326,8 @@ select.input { padding-right: .3rem; }
 .popover .popup { width: 100%; max-height: var(--pop-max-h, 70vh); }
 .popup-head, .popup-foot { flex: none; }
 .popup-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .55rem .6rem .55rem .9rem; border-bottom: 1px solid var(--line); }
+.popup-head.is-movable { cursor: move; touch-action: none; user-select: none; }
+.popup-head.is-movable .popup-close { cursor: pointer; }
 .popup-title { font-family: var(--font-title); font-size: 1.02rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .popup-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding: .8rem .9rem; container-type: inline-size; }
 .popup-foot { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .4rem; padding: .6rem .9rem; border-top: 1px solid var(--line); }

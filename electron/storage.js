@@ -10,6 +10,11 @@ const LOCAL_RE = /app:\/\/desk\/local\/[^"\s)]+/g;
 const APP_NAME = 'LazyWaffle';
 const OLD_NAME = 'DeskCalendar'; // 이전 앱 이름: 예전 백업 파일과 데이터 폴더를 그대로 이어받는다
 
+function dateStamp() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function isWritable(dir) {
   try {
     fs.mkdirSync(dir, { recursive: true });
@@ -52,9 +57,7 @@ class Storage {
 
   /** 하루 한 번 자동 백업(최근 14개 보관) */
   dailyBackup(json) {
-    const d = new Date();
-    const name = `state-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.json`;
-    const file = path.join(this.backups, name);
+    const file = path.join(this.backups, `state-${dateStamp()}.json`);
     if (fs.existsSync(file)) return;
     fs.writeFileSync(file, json);
     const list = fs.readdirSync(this.backups).filter((n) => n.startsWith('state-')).sort();
@@ -70,8 +73,7 @@ class Storage {
   }
 
   assetPath(name) {
-    const safe = path.basename(decodeURIComponent(name));
-    return path.join(this.assets, safe);
+    return path.join(this.assets, path.basename(decodeURIComponent(name)));
   }
 
   /** state 에서 참조되지 않는 이미지·임시 파일 정리. force 가 아니면 하루 이상 된 파일만. 지운 용량(byte) 반환 */
@@ -183,4 +185,4 @@ function resolveDataDir({ app, isDev, root }) {
   return dir;
 }
 
-module.exports = { Storage, resolveDataDir, isInstalled, MIME, LOCAL_PREFIX };
+module.exports = { Storage, resolveDataDir, isInstalled, dateStamp, MIME, LOCAL_PREFIX };

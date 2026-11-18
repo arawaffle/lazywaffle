@@ -3,7 +3,7 @@
 import { html, cx, useState, useRef, useEffect, useSize } from '../lib.js';
 import { pickAndCopyImage } from '../storage.js';
 import { croppedAverage, grayOn, hexToRgb, rgbToHex } from '../util/color.js';
-import { shrinkTo } from '../util/icon.js';
+import { shrinkTo, loadImage } from '../util/icon.js';
 import { parse } from '../util/date.js';
 import { Segmented, Range } from './controls.js';
 import { Icon } from './icons.js';
@@ -20,7 +20,7 @@ function cellSize(date) {
 }
 
 /** 크롭한 부분의 평균색 위에서 읽히는 회색 (사진은 칸 안에서도 밝기가 달라 대비 7:1 로 넉넉히) */
-export async function toneOf(image, view, aspect) {
+async function toneOf(image, view, aspect) {
   try {
     return grayOn(await croppedAverage(image, view, aspect), 7);
   } catch {
@@ -39,15 +39,6 @@ const grayAt = (pct) => {
 export const haloOf = (ink) => (lightOf(ink) >= 50 ? 'rgba(0, 0, 0, .45)' : 'rgba(255, 255, 255, .6)');
 
 const fillOf = (img) => ({ type: 'image', image: img.image, view: img.view || { zoom: 1, cx: 0.5, cy: 0.5 }, fit: img.fit || 'cover' });
-
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const el = new Image();
-    el.onload = () => resolve(el);
-    el.onerror = reject;
-    el.src = src;
-  });
-}
 
 /**
  * 칸 안에서 이미지가 그려질 자리(px, 정수)와 원본에서 잘라 올 부분.

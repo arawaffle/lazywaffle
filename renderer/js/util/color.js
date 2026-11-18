@@ -20,7 +20,7 @@ function luminance([r, g, b]) {
 }
 
 /** WCAG 대비율 */
-export function contrastRatio(a, b) {
+function contrastRatio(a, b) {
   const la = luminance(hexToRgb(a));
   const lb = luminance(hexToRgb(b));
   return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
@@ -71,7 +71,7 @@ export function ddayChipOn(bg) {
 }
 
 /** 색과 같은 명도(상대 휘도)의 회색 */
-export function grayOf(hex) {
+function grayOf(hex) {
   const L = luminance(hexToRgb(hex));
   const c = L <= 0.0031308 ? L * 12.92 : 1.055 * L ** (1 / 2.4) - 0.055;
   const v = Math.round(Math.min(1, Math.max(0, c)) * 255);
@@ -93,7 +93,7 @@ export function grayOn(bg, target = 4.5, from = bg) {
 }
 
 /** a 를 b 쪽으로 t(0~1) 만큼 섞기 */
-export function mixHex(a, b, t) {
+function mixHex(a, b, t) {
   const x = hexToRgb(a);
   const y = hexToRgb(b);
   return rgbToHex(x.map((v, i) => v + (y[i] - v) * t));
@@ -140,7 +140,7 @@ export function averageHex(colors, firstWeight = 2) {
 }
 
 /** 시드 기반 난수 */
-export function mulberry32(seed) {
+function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -161,21 +161,28 @@ function loadImage(src) {
   });
 }
 
+/** 이미지(crop = [x, y, w, h] 를 주면 그 부분)를 size × size 로 줄여 읽은 픽셀 (투명한 픽셀 제외) */
+function samplePixels(img, size, crop) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, ...(crop || []), 0, 0, size, size);
+  const d = ctx.getImageData(0, 0, size, size).data;
+  const px = [];
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] >= 128) px.push([d[i], d[i + 1], d[i + 2]]);
+  return px;
+}
+
+function averageOf(img, crop) {
+  const px = samplePixels(img, 24, crop);
+  if (!px.length) return '#808080';
+  return rgbToHex([0, 1, 2].map((k) => px.reduce((sum, p) => sum + p[k], 0) / px.length));
+}
+
 /** 이미지 전체 평균색 (배경 명도 판단용) */
 export async function averageColor(src) {
-  const img = await loadImage(src);
-  const canvas = document.createElement('canvas');
-  canvas.width = 24;
-  canvas.height = 24;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0, 24, 24);
-  const d = ctx.getImageData(0, 0, 24, 24).data;
-  let r = 0; let g = 0; let b = 0; let n = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 128) continue;
-    r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
-  }
-  return n ? rgbToHex([r / n, g / n, b / n]) : '#808080';
+  return averageOf(await loadImage(src));
 }
 
 /**
@@ -192,35 +199,12 @@ export async function croppedAverage(src, view, aspect = 1) {
   const h = w / aspect;
   const x = Math.min(W - w, Math.max(0, v.cx * W - w / 2));
   const y = Math.min(H - h, Math.max(0, v.cy * H - h / 2));
-  const canvas = document.createElement('canvas');
-  canvas.width = 24;
-  canvas.height = 24;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, x, y, w, h, 0, 0, 24, 24);
-  const d = ctx.getImageData(0, 0, 24, 24).data;
-  let r = 0; let g = 0; let b = 0; let n = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 128) continue;
-    r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
-  }
-  return n ? rgbToHex([r / n, g / n, b / n]) : '#808080';
+  return averageOf(img, [x, y, w, h]);
 }
 
 /** 이미지에서 대표 색상 k개 추출 (빈도순) */
 export async function extractPalette(src, k = 6) {
-  const img = await loadImage(src);
-  const S = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = S;
-  canvas.height = S;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0, S, S);
-  const data = ctx.getImageData(0, 0, S, S).data;
-  const px = [];
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] < 128) continue;
-    px.push([data[i], data[i + 1], data[i + 2]]);
-  }
+  const px = samplePixels(await loadImage(src), 64);
   if (!px.length) return [];
   // 초기 중심: 가장 먼 색부터 고르는 방식(farthest-first)으로 뚜렷한 색을 놓치지 않게 한다
   const dist2 = (p, c) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
@@ -237,14 +221,14 @@ export async function extractPalette(src, k = 6) {
     }
     centers.push(best.slice());
   }
-  let assign = new Array(px.length).fill(0);
+  const assign = new Array(px.length).fill(0);
   for (let iter = 0; iter < 10; iter++) {
     const sums = centers.map(() => [0, 0, 0, 0]);
     px.forEach((p, i) => {
       let best = 0;
       let bestD = Infinity;
       centers.forEach((c, j) => {
-        const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2;
+        const d = dist2(p, c);
         if (d < bestD) {
           bestD = d;
           best = j;
@@ -268,7 +252,7 @@ export async function extractPalette(src, k = 6) {
   // 너무 비슷한 색 제거
   const picked = [];
   for (const r of result) {
-    if (picked.every((p) => Math.hypot(p[0] - r.c[0], p[1] - r.c[1], p[2] - r.c[2]) > 28)) picked.push(r.c);
+    if (picked.every((p) => dist2(p, r.c) > 28 ** 2)) picked.push(r.c);
   }
   return picked.map(rgbToHex);
 }
@@ -277,15 +261,12 @@ export async function extractPalette(src, k = 6) {
 function meshLayers(palette, seed = 1) {
   const colors = palette && palette.length ? palette : ['#e6e6e6', '#bdbdbd', '#8a8a8a', '#f5f5f5'];
   const rnd = mulberry32(seed);
-  const layers = [];
-  const n = 5 + Math.floor(rnd() * 3);
-  for (let i = 0; i < n; i++) {
-    const c = colors[(i + 1) % colors.length];
-    const x = Math.round(rnd() * 100);
-    const y = Math.round(rnd() * 100);
-    const s = Math.round(38 + rnd() * 40);
-    layers.push({ c, x, y, s });
-  }
+  const layers = Array.from({ length: 5 + Math.floor(rnd() * 3) }, (_, i) => ({
+    c: colors[(i + 1) % colors.length],
+    x: Math.round(rnd() * 100),
+    y: Math.round(rnd() * 100),
+    s: Math.round(38 + rnd() * 40),
+  }));
   return { base: colors[0], layers };
 }
 
@@ -322,3 +303,19 @@ export function meshSampler(palette, seed, w, h) {
 export const EVENT_COLORS = [
   '#fde0e0', '#ffe7cc', '#fff3bf', '#dff5d8', '#cdf0ea', '#cdeefc', '#dde4ff', '#eadcff', '#f1f1f1', '#d6d6d6',
 ];
+
+/** 일정 색을 돌려주는 함수: 직접 고른 색 → 카테고리 색 → 기본 */
+/**
+ * 일정 막대·칩 칠하기: 배경에 불투명도(%)를 적용하고 글자색을 정한다.
+ * 많이 투명하면(55% 미만) 일정 색보다 뒤 화면이 더 보이므로 글자는 화면 기본 글자색을 따른다
+ */
+export function eventPaint(bg, opacity = 100) {
+  const a = Math.max(0, Math.min(100, Math.round(opacity)));
+  if (a >= 100) return { bg, fg: readableOn(bg) };
+  return { bg: `color-mix(in srgb, ${bg} ${a}%, transparent)`, fg: a >= 55 ? readableOn(bg) : 'var(--text)' };
+}
+
+export function eventColorOf(categories, fallback = '#ececec') {
+  const byId = new Map(categories.map((c) => [c.id, c.color]));
+  return (ev) => ev.color || byId.get(ev.categoryId) || fallback;
+}

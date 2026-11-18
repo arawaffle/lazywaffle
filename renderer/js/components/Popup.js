@@ -1,7 +1,8 @@
 // 위젯 영역 안에서만 열리는 팝업(대화상자).
 // 기본: 부모 위젯(.widget, position:relative) 을 덮는 레이어로 렌더링되어 영역을 벗어나지 않는다.
-// popover: 위젯이 너무 작을 때 위젯 옆에 붙어 뜨는 작은 창 (style 로 위치 지정)
-import { html, useEffect, useRef, useId, cx } from '../lib.js';
+// popover: 위젯이 너무 작을 때 위젯 옆에 붙어 뜨는 작은 창 (style 로 위치 지정).
+//   머리를 끌어 옮길 수 있고, 닫았다 다시 열면 처음 자리에서 열린다 (옮긴 거리는 기억하지 않음)
+import { html, useEffect, useRef, useState, useId, cx, capture } from '../lib.js';
 import { hold, release } from '../focus.js';
 import { IconButton } from './icons.js';
 
@@ -11,6 +12,7 @@ export function Popup({ title, onClose, children, footer, className, size = 'md'
   const ref = useRef(null);
   const id = useId();
   const key = useRef('popup-' + id);
+  const [shift, setShift] = useState({ x: 0, y: 0 }); // 팝오버를 끌어 옮긴 거리
 
   useEffect(() => {
     const prev = document.activeElement;
@@ -50,11 +52,44 @@ export function Popup({ title, onClose, children, footer, className, size = 'md'
     }
   }
 
+  /** 팝오버 머리 끌기: 콘텐츠 영역(잘리지 않는 범위) 밖으로는 나가지 않게 */
+  function startMove(e) {
+    if (!popover || e.button !== 0 || e.target.closest('button')) return;
+    const box = ref.current && ref.current.parentElement;
+    if (!box) return;
+    e.preventDefault();
+    const head = e.currentTarget;
+    capture(head, e);
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const start = shift;
+    const r = box.getBoundingClientRect();
+    const area = (box.closest('.content') || document.documentElement).getBoundingClientRect();
+    const lim = {
+      x0: area.left - r.left, x1: area.right - r.right,
+      y0: area.top - r.top, y1: Math.min(area.bottom, window.innerHeight) - r.bottom,
+    };
+    const clamp = (v, a, b) => Math.min(Math.max(v, Math.min(a, 0)), Math.max(b, 0));
+    const move = (ev) => setShift({
+      x: Math.round(start.x + clamp(ev.clientX - sx, lim.x0, lim.x1)),
+      y: Math.round(start.y + clamp(ev.clientY - sy, lim.y0, lim.y1)),
+    });
+    const up = () => {
+      head.removeEventListener('pointermove', move);
+      head.removeEventListener('pointerup', up);
+      head.removeEventListener('pointercancel', up);
+    };
+    head.addEventListener('pointermove', move);
+    head.addEventListener('pointerup', up);
+    head.addEventListener('pointercancel', up);
+  }
+
   // 입력을 시작한 팝업 표시: 바깥에서 누른 Esc 로는 닫지 않는다 (App.js)
   const markDirty = () => ref.current && (ref.current.dataset.dirty = '1');
   const dialog = html`<div ref=${ref} class=${cx('popup', 'popup-' + size, className)} role="dialog" aria-modal=${popover ? 'false' : 'true'}
       aria-labelledby=${id + '-t'} onKeyDown=${onKeyDown} onInput=${markDirty} onChange=${markDirty}>
-    <header class="popup-head">
+    <header class=${cx('popup-head', popover && 'is-movable')} onPointerDown=${popover ? startMove : undefined}
+        title=${popover ? '끌어서 옮기기' : undefined}>
       <h3 id=${id + '-t'} class="popup-title">${title}</h3>
       <${IconButton} icon="x" label="닫기" onClick=${onClose} className="popup-close" />
     </header>
@@ -62,7 +97,10 @@ export function Popup({ title, onClose, children, footer, className, size = 'md'
     ${footer && html`<footer class="popup-foot">${footer}</footer>`}
   </div>`;
 
-  if (popover) return html`<div class="popover" style=${popover}>${dialog}</div>`;
+  if (popover) {
+    const moved = shift.x || shift.y ? { translate: `${shift.x}px ${shift.y}px` } : null;
+    return html`<div class="popover" style=${{ ...popover, ...moved }}>${dialog}</div>`;
+  }
   return html`<div class="popup-layer" onMouseDown=${(e) => { if (backdropClose && e.target === e.currentTarget) onClose && onClose(); }}>${dialog}</div>`;
 }
 

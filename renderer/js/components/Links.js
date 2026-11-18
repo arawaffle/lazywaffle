@@ -113,8 +113,8 @@ export function FreeLinks({ editing }) {
     e.preventDefault();
     update((s) => {
       const l = s.links.find((x) => x.id === link.id);
-      l.fx = Math.min(98, Math.max(2, l.fx + d[0]));
-      l.fy = Math.min(97, Math.max(3, l.fy + d[1]));
+      l.fx = Math.min(98, Math.max(2, (l.fx ?? 92) + d[0]));
+      l.fy = Math.min(97, Math.max(3, (l.fy ?? 50) + d[1]));
     });
   }
 

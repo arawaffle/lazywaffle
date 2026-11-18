@@ -1,9 +1,9 @@
 import { html, useState, useMemo, useRef, useEffect, cx, useSize, useNow, useBus, capture } from '../lib.js';
 import { useApp, layoutKey } from '../store.js';
 import { setSetting, moveOccurrence, copyOccurrence } from '../actions.js';
-import { monthMatrix, addMonths, addDays, ymd, parse, diffDays, weekStartOf, MONTH_EN, WEEK_KO, WEEK_KO_LONG, fmtKoDate, pad } from '../util/date.js';
+import { monthMatrix, addMonths, addDays, ymd, parse, diffDays, weekStartOf, MONTH_EN, WEEK_KO, WEEK_KO_LONG, fmtKoDate, fmtMD, pad } from '../util/date.js';
 import { occurrences, ddayOf } from '../util/recur.js';
-import { readableOn, ddayChipOn } from '../util/color.js';
+import { ddayChipOn, eventColorOf, eventPaint } from '../util/color.js';
 import { HOLIDAYS } from '../util/holidays-data.js';
 import { Icon, IconButton } from './icons.js';
 import { Popup } from './Popup.js';
@@ -30,6 +30,9 @@ function MoneyTag({ day, className }) {
   const title = [day.out && `지출 ${day.out.toLocaleString('ko-KR')}원`, day.in && `수입 ${day.in.toLocaleString('ko-KR')}원`].filter(Boolean).join(' · ');
   return html`<span class=${cx(className, 'num', net > 0 && 'is-plus')} title=${title}><span class="sr-only">용돈기입장 </span>${fmtMoney(net)}</span>`;
 }
+
+const occsOn = (occs, date) => occs.filter((o) => o.start <= date && o.end >= date);
+const timeOf = (ev) => (ev.allDay === false && ev.startTime ? ev.startTime : '');
 
 const EVENT_ACTIONS = [['dots-v', '끌어서 이동 (누르면 날짜 골라 이동)', 'move'], ['eye', '일정 확인', 'detail'], ['edit', '수정', 'edit'], ['copy', '복사', 'copy'], ['trash', '삭제', 'delete']];
 
@@ -165,7 +168,7 @@ function DayPeek({ date, occs, colorOf, today, onPick }) {
         const dd = ev.dday ? ddayOf(ev, today) : null;
         return html`<li key=${o.key}><button type="button" class="peek-item" onClick=${() => onPick(o)}>
           <span class="peek-dot" style=${{ background: bg }} aria-hidden="true"></span>
-          <span class="peek-time num">${ev.allDay === false && ev.startTime ? ev.startTime : '종일'}</span>
+          <span class="peek-time num">${timeOf(ev) || '종일'}</span>
           <span class="peek-title">${ev.title}</span>
           ${dd && html`<${DdayChip} dd=${dd} bg=${bg} />`}
         </button></li>`;
@@ -252,15 +255,13 @@ function MonthGrid({ ym, weeks, occs, today, colorOf, onOpen, onCreate, popupOpe
   const firstOfMonth = `${ym.year}-${pad(ym.month + 1)}-01`;
   const activeDate = inView(focusDate) ? focusDate : inView(today) ? today : firstOfMonth;
   const weekdays = weeks[0].map((d) => parse(d).getDay());
-  const occsOn = (date) => occs.filter((o) => o.start <= date && o.end >= date);
-  const countOn = (date) => occsOn(date).length;
 
   // '+N' 호버 미리보기: 스쳐 지나갈 때 깜빡이지 않게 잠깐 머물러야 연다
   const peekTimer = useRef(null);
   function peekEnter(e, date) {
     const el = e.currentTarget;
     clearTimeout(peekTimer.current);
-    peekTimer.current = setTimeout(() => showHoverCard(el, (close) => html`<${DayPeek} date=${date} occs=${occsOn(date)} colorOf=${colorOf} today=${today}
+    peekTimer.current = setTimeout(() => showHoverCard(el, (close) => html`<${DayPeek} date=${date} occs=${occsOn(occs, date)} colorOf=${colorOf} today=${today}
       onPick=${(o) => { close(); onOpen({ type: 'detail', eventId: o.ev.id, date: o.start }); }} />`), 120);
   }
   function peekLeave() {
@@ -280,7 +281,7 @@ function MonthGrid({ ym, weeks, occs, today, colorOf, onOpen, onCreate, popupOpe
           ${week.map((date, col) => {
             const d = parse(date);
             const wd = d.getDay();
-            const n = countOn(date);
+            const n = occsOn(occs, date).length;
             const holiday = showHolidays ? HOLIDAYS[date] : null;
             // 칸 이미지: 날짜 · +N · 용돈 합계 글자는 이미지에 맞춘 회색 (--day-ink)
             const img = dayImages && dayImages[date];
@@ -307,16 +308,17 @@ function MonthGrid({ ym, weeks, occs, today, colorOf, onOpen, onCreate, popupOpe
             ${visible.map((seg) => {
               const ev = seg.occ.ev;
               const bg = colorOf(ev);
+              const paint = eventPaint(bg, settings.eventOpacity);
               const first = !seg.contL;
               const dd = ev.dday && first ? ddayOf(ev, today) : null;
               return html`<div key=${seg.occ.key + week[0]}
                   class=${cx('cal-bar', seg.contL && 'cont-l', seg.contR && 'cont-r', evDrag.isDragging(seg.occ.key) && 'is-dragging')}
-                  style=${{ left: `${(seg.c0 / 7) * 100}%`, width: `${((seg.c1 - seg.c0 + 1) / 7) * 100}%`, top: headH + seg.lane * laneH + 'px', height: laneH - 3 + 'px', background: bg, color: readableOn(bg) }}
+                  style=${{ left: `${(seg.c0 / 7) * 100}%`, width: `${((seg.c1 - seg.c0 + 1) / 7) * 100}%`, top: headH + seg.lane * laneH + 'px', height: laneH - 3 + 'px', background: paint.bg, color: paint.fg }}
                   onPointerDown=${(e) => evDrag.start(e, seg.occ)}
                   onClick=${() => evDrag.clickOk() && onOpen({ type: 'detail', eventId: ev.id, date: seg.occ.start })}>
                 <button type="button" class="cal-bar-main"
                   aria-label=${`${ev.title}, ${fmtKoDate(seg.occ.start)}${seg.occ.end !== seg.occ.start ? '부터 ' + fmtKoDate(seg.occ.end) + '까지' : ''}. 끌어서 날짜 이동, Ctrl 을 누른 채 끌면 복사`}>
-                  ${ev.allDay === false && ev.startTime && first && html`<span class="bar-time num">${ev.startTime}</span>`}
+                  ${first && timeOf(ev) && html`<span class="bar-time num">${ev.startTime}</span>`}
                   <span class="bar-title">${ev.title}</span>
                   ${dd && html`<${DdayChip} dd=${dd} bg=${bg} />`}
                 </button>
@@ -338,7 +340,7 @@ function WeekList({ days, occs, today, colorOf, onOpen, onCreate, settings, onMo
     ${days.map((date) => {
       const d = parse(date);
       const wd = d.getDay();
-      const list = occs.filter((o) => o.start <= date && o.end >= date);
+      const list = occsOn(occs, date);
       const holiday = showHolidays ? HOLIDAYS[date] : null;
       return html`<li key=${date} data-drop-date=${date} onPointerDown=${(e) => { if (picking && e.button === 0) { e.preventDefault(); picking(date); } }}
           class=${cx('wk-day', wd === 0 && 'is-sun', wd === 6 && 'is-sat', holiday && 'is-holiday', date === today && 'is-today', evDrag.isTarget(date) && 'is-drop')}>
@@ -351,15 +353,16 @@ function WeekList({ days, occs, today, colorOf, onOpen, onCreate, settings, onMo
           ${list.length ? list.map((o) => {
             const ev = o.ev;
             const bg = colorOf(ev);
+            const paint = eventPaint(bg, settings.eventOpacity);
             const dd = ev.dday ? ddayOf(ev, today) : null;
             const span = o.end !== o.start ? `${diffDays(o.start, date) + 1}/${diffDays(o.start, o.end) + 1}일` : '';
-            // 글자색은 일정 배경색에 맞춰 흰/검정 중 대비가 큰 쪽 (월간 막대와 같은 규칙)
-            return html`<li key=${o.key}><div class=${cx('wk-ev', evDrag.isDragging(o.key) && 'is-dragging')} style=${{ '--ev': bg, '--ev-text': readableOn(bg) }}
+            // 글자색은 일정 배경색에 맞춰 흰/검정 중 대비가 큰 쪽 (월간 막대와 같은 규칙 · 불투명도 설정 적용)
+            return html`<li key=${o.key}><div class=${cx('wk-ev', evDrag.isDragging(o.key) && 'is-dragging')} style=${{ '--ev': paint.bg, '--ev-text': paint.fg }}
                 onPointerDown=${(e) => evDrag.start(e, o)}
                 onClick=${() => evDrag.clickOk() && onOpen({ type: 'detail', eventId: ev.id, date: o.start })}>
               <button type="button" class="wk-ev-main">
                 <span class="wk-ev-dot" aria-hidden="true"></span>
-                <span class="wk-ev-time num">${ev.allDay === false && ev.startTime ? ev.startTime : '종일'}</span>
+                <span class="wk-ev-time num">${timeOf(ev) || '종일'}</span>
                 <span class="wk-ev-title">${ev.title}</span>
                 ${span && html`<span class="wk-ev-meta num">${span}</span>`}
                 ${dd && html`<${DdayChip} dd=${dd} bg=${bg} />`}
@@ -394,7 +397,6 @@ export function Calendar() {
   const from = view === 'week' ? weekDays[0] : weeks[0][0];
   const to = view === 'week' ? weekDays[6] : weeks[weeks.length - 1][6];
   const occs = useMemo(() => occurrences(events, from, to, settings.hiddenCategories), [events, from, to, settings.hiddenCategories]);
-  const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
   // 용돈기입장 위젯을 화면에 놓았을 때만 하루 합계 표시 (설정에서 끌 수 있음)
   const placed = (id) => (settings[layoutKey(settings)].find((l) => l.id === id) || {}).visible;
   const ledgerOn = placed('ledger');
@@ -410,7 +412,7 @@ export function Calendar() {
     }
     return m;
   }, [ledger, from, to, settings.ledgerOnCalendar, ledgerOn]);
-  const colorOf = (ev) => ev.color || (ev.categoryId && catMap[ev.categoryId] && catMap[ev.categoryId].color) || '#ececec';
+  const colorOf = useMemo(() => eventColorOf(categories), [categories]);
 
   const showDate = (date) => {
     const d = parse(date);
@@ -418,16 +420,15 @@ export function Calendar() {
     setAnchor(date);
   };
   const go = (n) => {
-    if (view === 'week') {
-      const next = addDays(anchor, n * 7);
-      showDate(next);
-    } else setYm((v) => addMonths(v.year, v.month, n));
+    if (view === 'week') showDate(addDays(anchor, n * 7));
+    else setYm((v) => addMonths(v.year, v.month, n));
   };
-  const goToday = () => showDate(today);
   const shown = view === 'week' ? parse(weekDays[3]) : new Date(ym.year, ym.month, 1);
   const shownY = shown.getFullYear();
   const shownM = shown.getMonth();
   const unit = view === 'week' ? '주' : '달';
+  const weekRange = `${fmtMD(weekDays[0])} – ${fmtMD(weekDays[6])}`;
+  const close = () => setPopup(null);
 
   useBus('calendar:open', (p) => {
     if (p.date) showDate(p.date);
@@ -437,20 +438,17 @@ export function Calendar() {
   // 호버 · 상세 창의 '복사' · '이동'은 날짜 고르기로 (전체 일정 관리의 복사는 내용을 고치는 등록 창 그대로)
   const onOpen = (p) => {
     if (p.type !== 'copy' && p.type !== 'move') return setPopup(p);
-    setPopup(null);
+    close();
     setCopying({ mode: p.type, eventId: p.eventId, date: p.date });
   };
   const copyEv = copying && events.find((e) => e.id === copying.eventId);
-  const pickCopy = (date) => {
-    if (copyEv) {
-      const start = copying.date || copyEv.start;
-      const delta = diffDays(start, date);
-      if (copying.mode === 'move') {
-        if (delta) moveOccurrence({ ev: copyEv, start }, delta);
-      } else copyOccurrence({ ev: copyEv, start }, delta);
-    }
+  const picking = copyEv && ((date) => {
+    const start = copying.date || copyEv.start;
+    const delta = diffDays(start, date);
+    if (copying.mode === 'copy') copyOccurrence({ ev: copyEv, start }, delta);
+    else if (delta) moveOccurrence({ ev: copyEv, start }, delta);
     setCopying(null);
-  };
+  });
   // Esc 로 복사 취소 (다른 Esc 처리보다 먼저)
   useEffect(() => {
     if (!copying) return undefined;
@@ -464,16 +462,17 @@ export function Calendar() {
   }, [copying]);
   const onCreate = (preset) => setPopup({ type: 'create', preset });
   const onMoveEvent = (occ, delta, copy) => (copy ? copyOccurrence(occ, delta) : moveOccurrence(occ, delta));
+  const type = popup && popup.type;
 
   return html`<section class=${cx('widget w-calendar', 'view-' + view)} aria-labelledby="cal-title">
     <header class="cal-head">
       <h2 class="cal-title-h" id="cal-title">
         <button type="button" class="cal-title" onClick=${() => setPopup({ type: 'month' })} aria-haspopup="dialog"
-          aria-label=${`${shownY}년 ${shownM + 1}월${view === 'week' ? `, ${weekDays[0].slice(5).replace('-', '.')}–${weekDays[6].slice(5).replace('-', '.')} 주간` : ''}. 눌러서 월 선택`}>
+          aria-label=${`${shownY}년 ${shownM + 1}월${view === 'week' ? `, ${weekRange} 주간` : ''}. 눌러서 월 선택`}>
           <span class="cal-month">${shownM + 1}</span>
           <span class="cal-mon-en" aria-hidden="true">${MONTH_EN[shownM]}</span>
           <span class="cal-year num" aria-hidden="true">${shownY}</span>
-          ${view === 'week' && html`<span class="cal-range num" aria-hidden="true">${weekDays[0].slice(5).replace('-', '.')} – ${weekDays[6].slice(5).replace('-', '.')}</span>`}
+          ${view === 'week' && html`<span class="cal-range num" aria-hidden="true">${weekRange}</span>`}
           <${Icon} name="chev-down" size=${12} />
         </button>
       </h2>
@@ -483,7 +482,7 @@ export function Calendar() {
             class=${cx('seg', view === v && 'is-on')} onClick=${() => setSetting('calendarView', v)}>${label}</button>`)}
         </div>
         <${IconButton} icon="chev-left" label=${`이전 ${unit}`} onClick=${() => go(-1)} />
-        <button type="button" class="btn btn-ghost btn-sm" onClick=${goToday}>오늘</button>
+        <button type="button" class="btn btn-ghost btn-sm" onClick=${() => showDate(today)}>오늘</button>
         <${IconButton} icon="chev-right" label=${`다음 ${unit}`} onClick=${() => go(1)} />
         <${IconButton} icon="tag" label="카테고리 관리" onClick=${() => setPopup({ type: 'categories' })} />
         <button type="button" class="btn btn-primary btn-sm" onClick=${() => onCreate({ start: today })}>
@@ -497,10 +496,10 @@ export function Calendar() {
 
     ${view === 'week'
       ? html`<${WeekList} days=${weekDays} occs=${occs} today=${today} colorOf=${colorOf} onOpen=${onOpen} onCreate=${onCreate} settings=${settings} onMoveEvent=${onMoveEvent} money=${money}
-          picking=${copyEv ? pickCopy : null} />`
+          picking=${picking} />`
       : html`<${MonthGrid} ym=${ym} weeks=${weeks} occs=${occs} today=${today} colorOf=${colorOf} onOpen=${onOpen} onCreate=${onCreate}
           popupOpen=${!!popup} showDate=${showDate} settings=${settings} onMoveEvent=${onMoveEvent} money=${money} dayImages=${dayImages}
-          picking=${copyEv ? pickCopy : null} />`}
+          picking=${picking} />`}
 
     ${copyEv && html`<div class="cal-pick" role="status">
       <span class="cal-pick-dot" style=${{ background: colorOf(copyEv) }} aria-hidden="true"></span>
@@ -510,18 +509,18 @@ export function Calendar() {
     </div>`}
 
     ${managing && html`<${EventManager} onOpen=${setPopup} onClose=${() => setManaging(false)} />`}
-    ${popup && popup.type === 'month' && html`<${MonthPicker} year=${shownY} month=${shownM} onClose=${() => setPopup(null)}
-      onPick=${(y, m) => { showDate(`${y}-${pad(m + 1)}-01`); setPopup(null); }} />`}
-    ${popup && popup.type === 'create' && html`<${EventForm} preset=${popup.preset} onClose=${() => setPopup(null)} />`}
-    ${popup && popup.type === 'copy' && html`<${EventForm} copyOf=${popup.eventId} occDate=${popup.date} onClose=${() => setPopup(null)} />`}
-    ${popup && popup.type === 'edit' && html`<${EventForm} eventId=${popup.eventId} occDate=${popup.date} onClose=${() => setPopup(null)} />`}
-    ${popup && popup.type === 'detail' && html`<${EventDetail} eventId=${popup.eventId} date=${popup.date}
-        onEdit=${() => setPopup({ type: 'edit', eventId: popup.eventId, date: popup.date })}
-        onCopy=${() => onOpen({ type: 'copy', eventId: popup.eventId, date: popup.date })} onClose=${() => setPopup(null)} />`}
-    ${popup && popup.type === 'day' && html`<${DayList} date=${popup.date} occs=${occs.filter((o) => o.start <= popup.date && o.end >= popup.date)}
+    ${type === 'month' && html`<${MonthPicker} year=${shownY} month=${shownM} onClose=${close}
+      onPick=${(y, m) => { showDate(`${y}-${pad(m + 1)}-01`); close(); }} />`}
+    ${type === 'create' && html`<${EventForm} preset=${popup.preset} onClose=${close} />`}
+    ${type === 'copy' && html`<${EventForm} copyOf=${popup.eventId} occDate=${popup.date} onClose=${close} />`}
+    ${type === 'edit' && html`<${EventForm} eventId=${popup.eventId} occDate=${popup.date} onClose=${close} />`}
+    ${type === 'detail' && html`<${EventDetail} eventId=${popup.eventId} date=${popup.date}
+        onEdit=${() => setPopup({ ...popup, type: 'edit' })}
+        onCopy=${() => onOpen({ ...popup, type: 'copy' })} onClose=${close} />`}
+    ${type === 'day' && html`<${DayList} date=${popup.date} occs=${occsOn(occs, popup.date)}
         onOpen=${(o) => setPopup({ type: 'detail', eventId: o.ev.id, date: o.start })}
-        onCreate=${() => onCreate({ start: popup.date })} onClose=${() => setPopup(null)} />`}
-    ${popup && popup.type === 'delete' && html`<${EventDelete} eventId=${popup.eventId} date=${popup.date} onDone=${() => setPopup(null)} onCancel=${() => setPopup(null)} />`}
-    ${popup && popup.type === 'categories' && html`<${CategoryManager} onClose=${() => setPopup(null)} />`}
+        onCreate=${() => onCreate({ start: popup.date })} onClose=${close} />`}
+    ${type === 'delete' && html`<${EventDelete} eventId=${popup.eventId} date=${popup.date} onDone=${close} onCancel=${close} />`}
+    ${type === 'categories' && html`<${CategoryManager} onClose=${close} />`}
   </section>`;
 }

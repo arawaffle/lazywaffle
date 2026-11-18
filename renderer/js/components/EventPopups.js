@@ -1,22 +1,15 @@
 // 캘린더 팝업: 일정 등록/수정, 상세, 날짜별 목록, 카테고리 관리
-import { html, useState, useRef, cx, capture } from '../lib.js';
+import { html, useState, useRef, cx, capture, moveItem, dropIndex } from '../lib.js';
 import { useApp } from '../store.js';
 import { saveEvent, deleteEvent, excludeOccurrence, detachOccurrence, saveCategory, deleteCategory, reorderCategories, toggleCategoryHidden, setDayImage } from '../actions.js';
-import { todayStr, dow, WEEK_KO, fmtKoDate } from '../util/date.js';
-import { KIND_LABEL, FREQ_LABEL, whenParts, ddayOf } from '../util/recur.js';
-import { readableOn, EVENT_COLORS } from '../util/color.js';
+import { todayStr, dow, WEEK_KO, fmtKoDate, fmtMD } from '../util/date.js';
+import { KIND_LABEL, KIND_OPTIONS, FREQ_LABEL, whenParts, ddayOf } from '../util/recur.js';
+import { readableOn, EVENT_COLORS, eventColorOf } from '../util/color.js';
 import { Popup, Confirm } from './Popup.js';
-import { Field, Segmented, Toggle, Check, ColorPicker } from './controls.js';
+import { Field, Segmented, Toggle, Check, ColorPicker, ColorSwatch } from './controls.js';
 import { Icon, IconButton } from './icons.js';
 import { DdayThumbField } from './DDay.js';
 import { DayImagePanel } from './DayImage.js';
-
-const KIND_OPTIONS = [
-  { value: 'single', label: '단기' },
-  { value: 'range', label: '장기' },
-  { value: 'repeat', label: '반복' },
-  { value: 'anniversary', label: '기념일' },
-];
 
 function emptyForm(preset = {}) {
   const start = preset.start || todayStr();
@@ -73,6 +66,10 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
   const [error, setError] = useState('');
   const set = (patch) => setF((v) => ({ ...v, ...patch }));
   const setRepeat = (patch) => setF((v) => ({ ...v, repeat: { ...v.repeat, ...patch } }));
+  const setStart = (e) => {
+    const start = e.currentTarget.value;
+    if (start) set({ start, end: f.end < start ? start : f.end });
+  };
   const isRepeatEdit = original && original.kind === 'repeat' && occDate;
   // '칸 이미지' 탭: 등록 버튼을 누를 때 함께 저장 (undefined = 손대지 않음)
   const [tab, setTab] = useState(preset && preset.tab === 'image' ? 'image' : 'event');
@@ -84,6 +81,7 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
     setTab('event');
     setError(msg);
   }
+  const timed = f.kind === 'single' || f.kind === 'repeat';
   function submit(e) {
     e.preventDefault();
     const imgChanged = imgDraft !== undefined;
@@ -95,9 +93,9 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
     if (f.kind === 'range' && f.end < f.start) return fail('종료일이 시작일보다 빠릅니다.');
     if (f.kind === 'repeat' && ['weekly', 'biweekly'].includes(f.repeat.freq) && !f.repeat.days.length) return fail('반복할 요일을 하나 이상 선택해 주세요.');
     if (f.kind === 'repeat' && f.repeat.until && f.repeat.until < f.start) return fail('반복 종료일이 시작일보다 빠릅니다.');
-    if (!f.allDay && f.endTime && f.endTime < f.startTime) return fail('종료 시간이 시작 시간보다 빠릅니다.');
+    if (timed && !f.allDay && f.endTime && f.endTime < f.startTime) return fail('종료 시간이 시작 시간보다 빠릅니다.');
     if (isRepeatEdit && scope === 'one') {
-      detachOccurrence(original.id, occDate, { ...toEvent({ ...f, kind: 'single', start: occDate }, null), dday: f.dday });
+      detachOccurrence(original.id, occDate, toEvent({ ...f, kind: 'single', start: occDate }, null));
     } else {
       saveEvent(toEvent(f, original ? original.id : undefined));
     }
@@ -119,7 +117,7 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
     ${tab === 'image' && html`<${DayImagePanel} date=${imgDate} value=${img} onChange=${setImgDraft} />`}
     <form id="ev-form" class="form-grid" onSubmit=${submit} noValidate hidden=${tab !== 'event'}>
       ${isRepeatEdit && html`<div class="span-2"><${Segmented} label="수정 범위" value=${scope} onChange=${setScope}
-        options=${[{ value: 'one', label: `이 날짜만 (${occDate.slice(5).replace('-', '.')})` }, { value: 'all', label: '반복 전체' }]} /></div>`}
+        options=${[{ value: 'one', label: `이 날짜만 (${fmtMD(occDate)})` }, { value: 'all', label: '반복 전체' }]} /></div>`}
       <${Field} label="제목" className="span-2">${(id) => html`<input id=${id} class="input" value=${f.title} maxlength="80" required
         onInput=${(e) => set({ title: e.currentTarget.value })} placeholder="일정 제목" data-autofocus />`}<//>
 
@@ -131,12 +129,12 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
       </select>`}<//>
 
       ${!oneDay && f.kind !== 'range' && html`<${Field} label=${f.kind === 'repeat' ? '반복 시작일' : '날짜'}>${(id) => html`<input id=${id} type="date" class="input num" value=${f.start}
-        onInput=${(e) => e.currentTarget.value && set({ start: e.currentTarget.value, end: f.end < e.currentTarget.value ? e.currentTarget.value : f.end })} />`}<//>`}
+        onInput=${setStart} />`}<//>`}
       ${!oneDay && f.kind === 'repeat' && html`<${Field} label="반복 종료일 (비우면 계속)">${(id) => html`<input id=${id} type="date" class="input num"
         value=${f.repeat.until} min=${f.start} onInput=${(e) => setRepeat({ until: e.currentTarget.value })} />`}<//>`}
       ${f.kind === 'range' && html`
         <${Field} label="시작일">${(id) => html`<input id=${id} type="date" class="input num" value=${f.start}
-          onInput=${(e) => { const v = e.currentTarget.value; if (v) set({ start: v, end: f.end < v ? v : f.end }); }} />`}<//>
+          onInput=${setStart} />`}<//>
         <${Field} label="종료일">${(id) => html`<input id=${id} type="date" class="input num" value=${f.end} min=${f.start}
           onInput=${(e) => e.currentTarget.value && set({ end: e.currentTarget.value })} />`}<//>`}
       ${f.kind === 'anniversary' && html`<div class="field field-check"><${Check} label="매년 반복" checked=${f.yearly} onChange=${(yearly) => set({ yearly })} /></div>`}
@@ -153,7 +151,7 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
           </div>
         </fieldset>` : html`<div></div>`}`}
 
-      ${(f.kind === 'single' || f.kind === 'repeat') && html`<div class="field">
+      ${timed && html`<div class="field">
         <span class="field-label">시간</span>
         <div class="time-pair">
           <${Toggle} label="종일" checked=${f.allDay} onChange=${(allDay) => set({ allDay })} />
@@ -167,7 +165,7 @@ export function EventForm({ preset, eventId, copyOf, occDate, onClose }) {
       </div>`}
 
       <div class="span-2 ev-style-row">
-        <${ColorPicker} label="색상" value=${f.color} onChange=${(color) => set({ color })} allowNone noneLabel=${catColor ? '카테고리 색 사용' : '기본 색'} savable />
+        <${ColorPicker} label="색상" value=${f.color} onChange=${(color) => set({ color })} allowNone noneLabel=${catColor ? '카테고리 색 사용' : '기본 색'} />
         <div class="form-box ev-dday-box">
           <div class="ev-dday-head">
             <${Toggle} label="D-day 위젯에 표시" checked=${f.dday} onChange=${(dday) => set({ dday })} />
@@ -191,7 +189,7 @@ export function EventDelete({ eventId, date, onDone, onCancel }) {
   const ev = events.find((e) => e.id === eventId);
   if (!ev) return null;
   return ev.kind === 'repeat' && date
-    ? html`<${Confirm} title="일정 삭제" danger confirmLabel=${`이 날짜만 삭제 (${date.slice(5).replace('-', '.')})`}
+    ? html`<${Confirm} title="일정 삭제" danger confirmLabel=${`이 날짜만 삭제 (${fmtMD(date)})`}
       message=${`'${ev.title}' 반복 일정을 어떻게 삭제할까요?`}
       extra=${html`<button type="button" class="btn btn-danger-ghost" onClick=${() => { deleteEvent(ev.id); onDone(); }}>반복 전체 삭제</button>`}
       onConfirm=${() => { excludeOccurrence(ev.id, date); onDone(); }} onCancel=${onCancel} />`
@@ -234,19 +232,15 @@ export function EventDetail({ eventId, date, onEdit, onCopy, onClose }) {
 }
 
 export function DayList({ date, occs, onOpen, onCreate, onClose }) {
-  const { categories } = useApp();
+  const colorOf = eventColorOf(useApp().categories);
   return html`<${Popup} title=${fmtKoDate(date)} onClose=${onClose} size="sm"
     footer=${html`<button type="button" class="btn btn-primary" onClick=${onCreate}><${Icon} name="plus" size=${14} /> 일정 추가</button>`}>
     ${occs.length ? html`<ul class="day-list">
-      ${occs.map((o) => {
-        const cat = categories.find((c) => c.id === o.ev.categoryId);
-        const color = o.ev.color || (cat && cat.color) || '#ececec';
-        return html`<li><button type="button" class="day-item" onClick=${() => onOpen(o)}>
-          <span class="dot" style=${{ background: color }} aria-hidden="true"></span>
-          <span class="day-item-title">${o.ev.title}</span>
-          <span class="muted num">${o.ev.allDay === false ? o.ev.startTime : KIND_LABEL[o.ev.kind]}</span>
-        </button></li>`;
-      })}
+      ${occs.map((o) => html`<li><button type="button" class="day-item" onClick=${() => onOpen(o)}>
+        <span class="dot" style=${{ background: colorOf(o.ev) }} aria-hidden="true"></span>
+        <span class="day-item-title">${o.ev.title}</span>
+        <span class="muted num">${o.ev.allDay === false ? o.ev.startTime : KIND_LABEL[o.ev.kind]}</span>
+      </button></li>`)}
     </ul>` : html`<p class="empty">등록된 일정이 없습니다.</p>`}
   <//>`;
 }
@@ -256,11 +250,7 @@ function useCategoryReorder(categories) {
   const [drag, setDrag] = useState(null); // { from, to }
   const listRef = useRef(null);
   function commit(from, to) {
-    if (from === to) return;
-    const ids = categories.map((c) => c.id);
-    const [id] = ids.splice(from, 1);
-    ids.splice(to, 0, id);
-    reorderCategories(ids);
+    if (from !== to) reorderCategories(moveItem(categories.map((c) => c.id), from, to));
   }
   function start(e, index) {
     if (e.button !== 0) return;
@@ -270,13 +260,7 @@ function useCategoryReorder(categories) {
     let state = { from: index, to: index };
     setDrag(state);
     const move = (ev) => {
-      const rows = [...listRef.current.querySelectorAll('.cat-row')];
-      let to = rows.findIndex((r) => {
-        const b = r.getBoundingClientRect();
-        return ev.clientY < b.top + b.height / 2;
-      });
-      if (to < 0) to = rows.length - 1;
-      else if (to > index) to -= 1;
+      const to = dropIndex([...listRef.current.querySelectorAll('.cat-row')], index, ev.clientY);
       if (to !== state.to) {
         state = { from: index, to };
         setDrag(state);
@@ -324,10 +308,7 @@ export function CategoryManager({ onClose }) {
         return html`<li key=${c.id} class=${cx('cat-row', dr && dr.from === i && 'is-dragging', dr && dr.from !== i && dr.to === i && (dr.to < dr.from ? 'drop-before' : 'drop-after'))}>
         <button type="button" class="cat-grip" aria-label=${c.name + ' 순서 바꾸기 (끌기 또는 Alt+위아래 방향키)'} title="끌어서 순서 바꾸기"
           onPointerDown=${(e) => reorder.start(e, i)} onKeyDown=${(e) => reorder.onKey(e, i)}><${Icon} name="grip" size=${14} /></button>
-        <label class="cat-color" title="색상 변경" style=${{ background: c.color }}>
-          <span class="sr-only">${c.name} 색상</span>
-          <input type="color" value=${c.color} onInput=${(e) => saveCategory({ ...c, color: e.currentTarget.value })} />
-        </label>
+        <${ColorSwatch} label=${c.name + ' 색상'} value=${c.color} onChange=${(color) => saveCategory({ ...c, color })} />
         <label class="sr-only" for=${'cat-' + c.id}>카테고리 이름</label>
         <input id=${'cat-' + c.id} class="input input-sm" value=${c.name} onChange=${(e) => e.currentTarget.value.trim() && saveCategory({ ...c, name: e.currentTarget.value.trim() })} />
         <${Check} label="표시" checked=${!hidden.has(c.id)} onChange=${() => toggleCategoryHidden(c.id)} />
@@ -337,10 +318,7 @@ export function CategoryManager({ onClose }) {
       ${!categories.length && html`<li class="empty">카테고리가 없습니다.</li>`}
     </ul>
     <form class="cat-add" onSubmit=${add}>
-      <label class="cat-color" style=${{ background: color }} title="새 카테고리 색상">
-        <span class="sr-only">새 카테고리 색상</span>
-        <input type="color" value=${color} onInput=${(e) => setColor(e.currentTarget.value)} />
-      </label>
+      <${ColorSwatch} label="새 카테고리 색상" value=${color} onChange=${setColor} />
       <label class="sr-only" for="cat-new">새 카테고리 이름</label>
       <input id="cat-new" class="input input-sm" value=${name} onInput=${(e) => setName(e.currentTarget.value)} placeholder="새 카테고리 이름" />
       <button type="submit" class="btn btn-primary btn-sm">추가</button>

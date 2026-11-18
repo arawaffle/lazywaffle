@@ -4,18 +4,12 @@ import { html, useState, useMemo, cx } from '../lib.js';
 import { useApp } from '../store.js';
 import { patchEvents, deleteEvents } from '../actions.js';
 import { todayStr } from '../util/date.js';
-import { FREQ_LABEL } from '../util/recur.js';
-import { readableOn } from '../util/color.js';
+import { FREQ_LABEL, KIND_OPTIONS } from '../util/recur.js';
+import { readableOn, eventColorOf } from '../util/color.js';
 import { Popup, Confirm } from './Popup.js';
 import { IconButton } from './icons.js';
 
-const KINDS = [
-  { value: 'single', label: '단기' },
-  { value: 'range', label: '장기' },
-  { value: 'repeat', label: '반복' },
-  { value: 'anniversary', label: '기념일' },
-];
-const KIND_SHORT = Object.fromEntries(KINDS.map((k) => [k.value, k.label]));
+const KIND_SHORT = Object.fromEntries(KIND_OPTIONS.map((k) => [k.value, k.label]));
 const PERIODS = [['all', '전체'], ['upcoming', '예정'], ['past', '지난']];
 const SORTS = [['date', '날짜 빠른 순'], ['date-desc', '날짜 늦은 순'], ['created', '최근 등록 순']];
 
@@ -59,8 +53,7 @@ export function EventManager({ onOpen, onClose }) {
   const [sort, setSort] = useState('date');
   const [sel, setSel] = useState(() => new Set());
   const [confirm, setConfirm] = useState(null); // 지울 id 목록
-  const catMap = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c])), [categories]);
-  const colorOf = (ev) => ev.color || (ev.categoryId && catMap[ev.categoryId] && catMap[ev.categoryId].color) || '#ececec';
+  const colorOf = useMemo(() => eventColorOf(categories), [categories]);
 
   const list = useMemo(() => {
     const word = q.trim().toLowerCase();
@@ -88,6 +81,7 @@ export function EventManager({ onOpen, onClose }) {
     return n;
   });
   const toggleAll = () => setSel(allOn ? new Set() : new Set(list.map((e) => e.id)));
+  const only = confirm && confirm.length === 1 ? events.find((e) => e.id === confirm[0]) || {} : null;
 
   // 확인 창은 관리 창 밖(위젯 기준)에 띄운다 — 관리 창 본문 안에 두면 스크롤 영역에 갇힌다
   return html`<${Popup} title="전체 일정 관리" onClose=${onClose} size="fill" className="em-popup">
@@ -106,7 +100,7 @@ export function EventManager({ onOpen, onClose }) {
         </select>
         <select class="input input-sm" aria-label="유형으로 거르기" value=${kind} onChange=${(e) => setKind(e.currentTarget.value)}>
           <option value="*">모든 유형</option>
-          ${KINDS.map((k) => html`<option value=${k.value}>${k.label}</option>`)}
+          ${KIND_OPTIONS.map((k) => html`<option value=${k.value}>${k.label}</option>`)}
         </select>
         <select class="input input-sm" aria-label="정렬" value=${sort} onChange=${(e) => setSort(e.currentTarget.value)}>
           ${SORTS.map(([v, label]) => html`<option value=${v}>${label}</option>`)}
@@ -171,8 +165,8 @@ export function EventManager({ onOpen, onClose }) {
     </div>
   <//>
   ${confirm && html`<${Confirm} title="일정 삭제" danger confirmLabel="삭제"
-      message=${confirm.length === 1
-        ? `'${(events.find((e) => e.id === confirm[0]) || {}).title}' 일정을 삭제할까요?${(events.find((e) => e.id === confirm[0]) || {}).kind === 'repeat' ? ' (반복 전체)' : ''}`
+      message=${only
+        ? `'${only.title}' 일정을 삭제할까요?${only.kind === 'repeat' ? ' (반복 전체)' : ''}`
         : `고른 일정 ${confirm.length}개를 삭제할까요? 반복 일정은 반복 전체가 지워집니다.`}
       onConfirm=${() => { deleteEvents(confirm); setSel((s) => new Set([...s].filter((id) => !confirm.includes(id)))); setConfirm(null); }}
       onCancel=${() => setConfirm(null)} />`}`;

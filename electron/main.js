@@ -5,7 +5,7 @@
 const { app, BaseWindow, BrowserWindow, ImageView, protocol, ipcMain, Tray, Menu, screen, shell, dialog, nativeImage, Notification, globalShortcut, powerMonitor, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { Storage, resolveDataDir, isInstalled, MIME, LOCAL_PREFIX } = require('./storage');
+const { Storage, resolveDataDir, isInstalled, dateStamp, MIME, LOCAL_PREFIX } = require('./storage');
 const { createUpdater } = require('./updater');
 
 const ROOT = path.join(__dirname, '..');
@@ -86,14 +86,14 @@ function applyAutostart() {
 function findTarget() {
   const all = screen.getAllDisplays();
   const want = config.displayRect;
-  const sameRect = (d) => { const p = physicalBounds(d); return p.x === want.x && p.y === want.y && p.width === want.width && p.height === want.height; };
-  const samePos = (d) => { const p = physicalBounds(d); return p.x === want.x && p.y === want.y; };
   let d;
-  if (want && (d = all.find(sameRect))) return { display: d, how: 'rect' };
+  if (want && (d = all.find((x) => sameRect(physicalBounds(x), want)))) return { display: d, how: 'rect' };
   if ((d = all.find((x) => String(x.id) === String(config.displayId)))) return { display: d, how: 'id' };
-  if (want && (d = all.find(samePos))) return { display: d, how: 'pos' };
+  if (want && (d = all.find((x) => samePos(physicalBounds(x), want)))) return { display: d, how: 'pos' };
   return { display: screen.getPrimaryDisplay(), how: 'primary' };
 }
+const samePos = (a, b) => a.x === b.x && a.y === b.y;
+const sameRect = (a, b) => samePos(a, b) && a.width === b.width && a.height === b.height;
 function targetDisplay() {
   return findTarget().display;
 }
@@ -109,7 +109,7 @@ function refreshRememberedDisplay() {
 function rememberDisplay(d) {
   const rect = physicalBounds(d);
   const prev = config.displayRect;
-  if (String(config.displayId) === String(d.id) && prev && prev.x === rect.x && prev.y === rect.y && prev.width === rect.width && prev.height === rect.height) return;
+  if (String(config.displayId) === String(d.id) && prev && sameRect(prev, rect)) return;
   config.displayId = String(d.id);
   config.displayRect = rect;
   saveConfig();
@@ -142,7 +142,7 @@ function moveToDisplay() {
   win.setBounds(d.bounds);
   placedOn = String(d.id);
   if (wasWallpaper || config.wallpaperMode) setTimeout(embed, 150);
-  win.webContents.send('desk:info', info());
+  sendInfo();
 }
 function physicalBounds(display) {
   return isWin ? screen.dipToScreenRect(null, display.bounds) : display.bounds;
@@ -175,8 +175,8 @@ function placeInHost() {
   placedOn = String(d.id);
   const phys = physicalBounds(d);
   const pr = w32.windowRect(host.parent);
-  const { SWP_NOACTIVATE, SWP_SHOWWINDOW, SWP_NOZORDER } = w32.C;
-  const flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | w32.C.SWP_FRAMECHANGED | (host.insertAfter ? 0 : SWP_NOZORDER);
+  const { SWP_NOACTIVATE, SWP_SHOWWINDOW, SWP_NOZORDER, SWP_FRAMECHANGED } = w32.C;
+  const flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED | (host.insertAfter ? 0 : SWP_NOZORDER);
   w32.api.SetWindowPos(hwnd, host.insertAfter || 0, phys.x - pr.left, phys.y - pr.top, phys.width, phys.height, flags);
   geoCache.rect = null;
 }
@@ -371,8 +371,7 @@ function onHookButton(msg, pt) {
 
 function onRawMouse(raw) {
   // 버튼/휠 변화가 없는 순수 이동은 아래 60fps 묶음 처리에서만 다룬다
-  const hasButtons = raw.buttons !== 0;
-  if (!hasButtons) return scheduleMove();
+  if (!raw.buttons) return scheduleMove();
   const pt = w32.cursorPos();
   const c = toClient(pt);
   const overDesktop = c.inside && w32.isDesktopAt(pt, hwnd);
@@ -426,8 +425,7 @@ function scheduleMove() {
 
 function installMouseForwarding() {
   if (!w32) return;
-  const ok = w32.registerRawMouse(hwnd);
-  if (!ok) console.warn('[wallpaper] Raw Input 등록 실패');
+  if (!w32.registerRawMouse(hwnd)) console.warn('[wallpaper] Raw Input 등록 실패');
   // 감시: 다른 코드(Chromium 내부 등)가 마우스 Raw Input 등록을 바꾸면 바탕화면 클릭 전달이 끊기므로 되돌린다
   clearInterval(rawWatch);
   rawWatch = setInterval(() => {
@@ -640,21 +638,21 @@ function refreshTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '편집 모드로 열기', click: () => lift('tray') },
     { label: '바탕화면으로 보내기', enabled: mode !== 'wallpaper' && config.wallpaperMode, click: () => embed('tray') },
-    { label: '화면 설정', click: () => { lift('tray'); win && win.webContents.send('desk:command', 'open-settings'); } },
+    { label: '화면 설정', click: () => openSettings('tray') },
     { type: 'separator' },
     {
       label: '바탕화면 모드 (아이콘 아래에 배치)', type: 'checkbox', checked: config.wallpaperMode,
-      click: (item) => { setWallpaperMode(item.checked); },
+      click: (item) => setWallpaperMode(item.checked),
     },
     {
       label: '시작 시 자동 실행', type: 'checkbox', checked: config.autostart, enabled: app.isPackaged,
-      click: (item) => { setAutostart(item.checked); },
+      click: (item) => setAutostart(item.checked),
     },
     { label: '데이터 폴더 열기', click: () => shell.openPath(storage.dir) },
     { label: '새로고침', click: () => win && win.webContents.reload() },
     ...updateMenu(),
     { type: 'separator' },
-    { label: '종료', click: () => { quitting = true; app.quit(); } },
+    { label: '종료', click: quit },
   ]));
 }
 
@@ -681,7 +679,7 @@ function setupUpdater() {
         trayStatus = s;
         refreshTray();
       }
-      if (win) win.webContents.send('desk:info', info());
+      sendInfo();
     },
     onReady: (version) => {
       if (!Notification.isSupported()) return;
@@ -690,7 +688,7 @@ function setupUpdater() {
         body: '트레이 메뉴나 화면 설정에서 다시 시작하면 적용됩니다. 그냥 두면 다음에 앱을 끌 때 설치됩니다.',
         icon: ICON,
       });
-      n.on('click', () => { lift('update'); win && win.webContents.send('desk:command', 'open-settings'); });
+      n.on('click', () => openSettings('update'));
       n.show();
     },
     beforeInstall: () => { quitting = true; },
@@ -704,14 +702,26 @@ function setWallpaperMode(on) {
   if (on) embed();
   else toWindowMode();
   refreshTray();
-  if (win) win.webContents.send('desk:info', info());
+  sendInfo();
 }
 function setAutostart(on) {
   config.autostart = !!on;
   saveConfig();
   applyAutostart();
   refreshTray();
-  if (win) win.webContents.send('desk:info', info());
+  sendInfo();
+}
+
+function quit() {
+  quitting = true;
+  app.quit();
+}
+function openSettings(why) {
+  lift(why);
+  if (win) win.webContents.send('desk:command', 'open-settings');
+}
+function sendInfo() {
+  if (win && !win.isDestroyed()) win.webContents.send('desk:info', info());
 }
 
 function info() {
@@ -788,10 +798,7 @@ function registerIpc() {
     return { name: path.basename(file), data: fs.readFileSync(file) };
   }));
   ipcMain.handle('desk:clearCache', (e, state) => clearCache(state));
-  ipcMain.on('desk:quit', () => {
-    quitting = true;
-    app.quit();
-  });
+  ipcMain.on('desk:quit', quit);
   ipcMain.on('desk:setDisplay', (e, id) => {
     const d = screen.getAllDisplays().find((x) => String(x.id) === String(id));
     if (!d) return;
@@ -799,11 +806,9 @@ function registerIpc() {
     moveToDisplay();
   });
   ipcMain.handle('desk:exportBackup', (e, state) => withDialog(async () => {
-    const d = new Date();
-    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
     const res = await dialog.showSaveDialog(win, {
       title: '백업 파일 저장',
-      defaultPath: path.join(app.getPath('documents'), `LazyWaffle-backup-${stamp}.json`),
+      defaultPath: path.join(app.getPath('documents'), `LazyWaffle-backup-${dateStamp()}.json`),
       filters: [{ name: 'LazyWaffle 백업', extensions: ['json'] }],
     });
     if (res.canceled || !res.filePath) return null;
@@ -870,13 +875,9 @@ function registerProtocol() {
 app.on('second-instance', (e, argv) => runCommand((argv.find((a) => a.startsWith('--desk-cmd=')) || '').slice(11) || 'show'));
 
 function runCommand(cmd) {
-  if (cmd === 'quit') {
-    quitting = true;
-    app.quit();
-  } else if (cmd === 'settings') {
-    lift('command');
-    if (win) win.webContents.send('desk:command', 'open-settings');
-  } else lift('command');
+  if (cmd === 'quit') quit();
+  else if (cmd === 'settings') openSettings('command');
+  else lift('command');
 }
 
 /* ───────── 작업표시줄 버튼 ─────────
@@ -924,8 +925,7 @@ function createTaskbarButton() {
   taskbarWin.on('close', (e) => {
     if (quitting) return;
     e.preventDefault();
-    quitting = true;
-    app.quit();
+    quit();
   });
   taskbarWin.on('closed', () => (taskbarWin = null));
 }
@@ -986,13 +986,13 @@ app.whenReady().then(async () => {
       win.setBounds(d.bounds);
       placedOn = String(d.id);
     }
-    win.webContents.send('desk:info', info());
+    sendInfo();
   };
   // 로그인 직후 자동 실행되면 보조 모니터가 아직 준비되지 않아 주 모니터에 뜨는 일이 있다: 잠시 동안 몇 번 다시 확인한다
   [3000, 8000, 20000, 45000].forEach((ms) => setTimeout(() => reposition('startup-check'), ms));
   screen.on('display-metrics-changed', (e, d, changed) => {
     // 작업 영역만 바뀐 경우(작업표시줄 크기·자동 숨김 등)는 창은 그대로 두고 여백 정보만 알린다
-    if (changed.every((m) => m === 'workArea')) return win && win.webContents.send('desk:info', info());
+    if (changed.every((m) => m === 'workArea')) return sendInfo();
     log(`display-metrics-changed ${d.id} [${changed}]`);
     reposition('display:' + changed);
   });

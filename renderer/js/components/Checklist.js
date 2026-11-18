@@ -1,5 +1,5 @@
 // 체크리스트: 매일 할 일 → 오늘 할 일 → 이후(완료 목표일 순)
-import { html, useState, useMemo, cx, useNow, uid, bus, capture } from '../lib.js';
+import { html, useState, useMemo, cx, useNow, uid, bus, capture, moveItem, dropIndex } from '../lib.js';
 import { useApp } from '../store.js';
 import { saveTask, deleteTask, toggleTask, toggleSubtask, setTaskStep, stepValue, reorderTasks } from '../actions.js';
 import { ymd, diffDays, ddayLabel, fmtDate, addMonths, monthKey, pad } from '../util/date.js';
@@ -69,10 +69,7 @@ function commitOrder(group, list, from, to) {
     bus.emit('toast', { text: '‘이후’ 목록은 완료 목표일 순이라, 같은 목표일끼리만 순서를 바꿀 수 있어요.' });
     return;
   }
-  const ids = list.map((t) => t.id);
-  const [moved] = ids.splice(from, 1);
-  ids.splice(to, 0, moved);
-  reorderTasks(ids);
+  reorderTasks(moveItem(list.map((t) => t.id), from, to));
 }
 function useReorder(group, list) {
   const [drag, setDrag] = useState(null); // { from, to }
@@ -85,10 +82,7 @@ function useReorder(group, list) {
     capture(row, e);
     const move = (ev) => {
       if (!state && Math.abs(ev.clientY - sy) < 5) return;
-      const rows = [...ul.children];
-      let to = rows.findIndex((r) => ev.clientY < r.getBoundingClientRect().top + r.getBoundingClientRect().height / 2);
-      if (to < 0) to = rows.length - 1;
-      else if (to > index) to -= 1;
+      const to = dropIndex([...ul.children], index, ev.clientY);
       if (!state || state.to !== to) {
         state = { from: index, to };
         setDrag(state);

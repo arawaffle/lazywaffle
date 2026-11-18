@@ -48,7 +48,6 @@ const api = {
   CloseHandle: kernel32.func('int CloseHandle(intptr_t h)'),
   VirtualAllocEx: kernel32.func('intptr_t VirtualAllocEx(intptr_t proc, intptr_t addr, uintptr_t size, uint32_t type, uint32_t protect)'),
   WriteProcessMemory: kernel32.func('int WriteProcessMemory(intptr_t proc, intptr_t addr, const uint8_t *buf, uintptr_t size, _Out_ uintptr_t *written)'),
-  ReadProcessMemory: kernel32.func('int ReadProcessMemory(intptr_t proc, intptr_t addr, _Out_ uint8_t *buf, uintptr_t size, _Out_ uintptr_t *read)'),
   K32EmptyWorkingSet: kernel32.func('int K32EmptyWorkingSet(intptr_t proc)'),
 };
 
@@ -63,9 +62,9 @@ const C = {
   RIDEV_INPUTSINK: 0x100,
   RI_MOUSE_LEFT_DOWN: 0x1, RI_MOUSE_LEFT_UP: 0x2,
   RI_MOUSE_WHEEL: 0x400, RI_MOUSE_HWHEEL: 0x800,
-  WH_MOUSE_LL: 14, WM_LBUTTONDOWN: 0x201, WM_LBUTTONUP: 0x202, WM_LBUTTONDBLCLK: 0x203,
+  WH_MOUSE_LL: 14, WM_LBUTTONDOWN: 0x201, WM_LBUTTONUP: 0x202,
   SMTO_ABORTIFHUNG: 0x2,
-  LVM_GETITEMCOUNT: 0x1004, LVM_HITTEST: 0x1012,
+  LVM_HITTEST: 0x1012,
 };
 
 function className(hwnd) {
@@ -103,20 +102,17 @@ function findWallpaperHost() {
   // Windows 11 24H2 이후: WorkerW 가 Progman 의 자식. 아이콘(SHELLDLL_DefView) 바로 아래에 끼운다.
   const childWorker = api.FindWindowExW(progman, 0, 'WorkerW', null);
   const progmanDefView = api.FindWindowExW(progman, 0, 'SHELLDLL_DefView', null);
-  if (childWorker) {
-    return { kind: 'progman', parent: progman, insertAfter: progmanDefView || 0 };
-  }
+  if (childWorker) return { parent: progman, insertAfter: progmanDefView || 0 };
 
   // 이전 버전: SHELLDLL_DefView 를 가진 WorkerW 의 다음 WorkerW 가 배경 레이어.
   let w = 0;
   while ((w = api.FindWindowExW(0, w, 'WorkerW', null))) {
     if (api.FindWindowExW(w, 0, 'SHELLDLL_DefView', null)) {
       const worker = api.FindWindowExW(0, w, 'WorkerW', null);
-      if (worker) return { kind: 'workerw', parent: worker, insertAfter: 0 };
+      if (worker) return { parent: worker, insertAfter: 0 };
     }
   }
-  if (progmanDefView) return { kind: 'progman', parent: progman, insertAfter: progmanDefView };
-  return null;
+  return progmanDefView ? { parent: progman, insertAfter: progmanDefView } : null;
 }
 
 /** 커서 아래가 '바탕화면'인지 (다른 프로그램 창이 덮고 있지 않은지) */
@@ -184,13 +180,10 @@ function desktopIconAt(pt) {
 }
 
 /** 지금 눌려 있는 보조 키 (바탕화면 모드에서 전달하는 마우스 입력에 붙인다: Ctrl+끌기 복사 등) */
+const keyDown = (vk) => api.GetAsyncKeyState(vk) & 0x8000;
+const MODIFIERS = [[0x11, 'control'], [0x10, 'shift'], [0x12, 'alt']];
 function modifierKeys() {
-  const down = (vk) => api.GetAsyncKeyState(vk) & 0x8000;
-  const m = [];
-  if (down(0x11)) m.push('control');
-  if (down(0x10)) m.push('shift');
-  if (down(0x12)) m.push('alt');
-  return m;
+  return MODIFIERS.filter(([vk]) => keyDown(vk)).map(([, name]) => name);
 }
 
 /**
@@ -228,8 +221,7 @@ const mouseHookActive = () => !!hook.handle;
  */
 const TASKBAR_CLASSES = new Set(['Shell_TrayWnd', 'Shell_SecondaryTrayWnd', 'TaskListThumbnailWnd', 'XamlExplorerHostIslandWindow']);
 function userPickedFromTaskbar() {
-  const down = (vk) => api.GetAsyncKeyState(vk) & 0x8000;
-  if (down(0x12) || down(0x5b) || down(0x5c)) return true; // Alt(Alt+Tab) · Win(Win+숫자)
+  if (keyDown(0x12) || keyDown(0x5b) || keyDown(0x5c)) return true; // Alt(Alt+Tab) · Win(Win+숫자)
   const root = api.GetAncestor(api.WindowFromPoint(cursorPos()), C.GA_ROOT);
   return TASKBAR_CLASSES.has(className(root));
 }
@@ -258,20 +250,15 @@ function forceForeground(hwnd) {
 }
 
 /** 마우스 Raw Input 등록 해제 (커서가 바탕화면 밖에 있을 때 이벤트 폭주를 막기 위해) */
-function unregisterRawMouse() {
-  const dev = Buffer.alloc(16);
-  dev.writeUInt16LE(0x01, 0);
-  dev.writeUInt16LE(0x02, 2);
-  dev.writeUInt32LE(0x1, 4); // RIDEV_REMOVE
-  return api.RegisterRawInputDevices(dev, 1, 16);
-}
+const unregisterRawMouse = () => setRawMouse(0x1, 0); // RIDEV_REMOVE
+const registerRawMouse = (hwnd) => setRawMouse(C.RIDEV_INPUTSINK, hwnd);
 
-function registerRawMouse(hwnd) {
+function setRawMouse(flags, hwnd) {
   // RAWINPUTDEVICE { USHORT usUsagePage; USHORT usUsage; DWORD dwFlags; HWND hwndTarget; } = 16 bytes(x64)
   const dev = Buffer.alloc(16);
   dev.writeUInt16LE(0x01, 0);
   dev.writeUInt16LE(0x02, 2);
-  dev.writeUInt32LE(C.RIDEV_INPUTSINK, 4);
+  dev.writeUInt32LE(flags, 4);
   dev.writeBigUInt64LE(BigInt(hwnd), 8);
   return api.RegisterRawInputDevices(dev, 1, 16);
 }

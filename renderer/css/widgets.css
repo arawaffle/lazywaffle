@@ -191,7 +191,7 @@
 .wd-chip:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .cat-list { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .8rem; }
-.cat-row, .cat-add { display: flex; align-items: center; gap: .45rem; }
+.cat-row, .cat-add { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
 .cat-row .input, .cat-add .input { flex: 1; }
 .cat-add { padding-top: .7rem; border-top: 1px solid var(--line); }
 .cat-add::before { content: ''; width: 1.2rem; flex: none; }
@@ -204,9 +204,7 @@
 .cat-row.is-dragging .cat-grip { cursor: grabbing; }
 .cat-row.drop-before { box-shadow: 0 -2px 0 var(--accent); }
 .cat-row.drop-after { box-shadow: 0 2px 0 var(--accent); }
-.cat-color { position: relative; width: 1.6rem; height: 1.6rem; flex: none; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); overflow: hidden; cursor: pointer; }
-.cat-color input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
-.cat-color:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cat-color { width: 1.6rem; height: 1.6rem; flex: none; padding: 0; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); }
 
 /* ───────── 체크리스트 ───────── */
 .cl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: .3rem; flex: none; min-width: 0; }
@@ -473,7 +471,7 @@
 .dday-shape.is-on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* ───────── 오늘의 일정 전광판 ───────── */
-.cell-ticker { display: flex; align-items: center; }
+.cell-ticker, .cell-goalWeek, .cell-goalMonth { display: flex; align-items: center; }
 
 .w-ticker { height: min(100%, 2.4rem); flex-direction: row; align-items: center; background: var(--ticker-bg); color: var(--ticker-fg); padding: 0 0 0 1.4rem; font-family: var(--font-pixel); }
 .ticker-label { flex: none; font-size: 12px; font-weight: 400; text-shadow: 1px 0 0 currentColor; white-space: nowrap; padding-right: 1rem; letter-spacing: .02em; }
@@ -486,6 +484,19 @@
 .tick-item { flex: none; border: 0; background: none; color: inherit; font-family: inherit; font-size: 12px; line-height: 1; padding: .1rem .2rem; white-space: nowrap; border-radius: var(--radius-sm); }
 button.tick-item:hover { text-decoration: underline; text-underline-offset: 3px; }
 .tick-item.is-empty { opacity: .75; }
+.ticker-tool { flex: none; width: 1.7rem; height: 100%; border-radius: 0; color: inherit; opacity: 0; transition: opacity .15s; }
+.ticker-tool:hover { background: color-mix(in srgb, currentColor 16%, transparent); color: inherit; }
+.w-ticker:hover .ticker-tool, .ticker-tool:focus-visible, .ticker-tool[aria-expanded="true"] { opacity: 1; }
+.w-ticker .popover { font-family: var(--font-body); }
+.tick-popup .popup-body { display: flex; flex-direction: column; gap: .7rem; }
+.tick-color { display: flex; flex-direction: column; gap: .6rem; }
+.goal-form { display: flex; gap: .35rem; }
+.goal-form .input { flex: 1; min-width: 0; }
+.goal-form .btn { flex: none; }
+.goal-list { display: flex; flex-direction: column; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+.goal-list li { display: flex; align-items: center; gap: .4rem; padding: .1rem 0 .1rem .5rem; border-radius: var(--radius-sm); font-size: .82rem; }
+.goal-list li:hover { background: var(--surface); }
+.goal-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .tick-item:focus-visible { outline-color: var(--ticker-fg); }
 @media (prefers-reduced-motion: reduce) {
   .ticker-box.is-scrolling { overflow-x: auto; mask-image: none; }
@@ -626,9 +637,7 @@ button.tick-item:hover { text-decoration: underline; text-underline-offset: 3px;
 /* 일과 편집 */
 .tt-edit { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .5rem; }
 .tt-edit li { display: grid; grid-template-columns: 1.6rem minmax(4rem, 1fr) 7.8rem auto 7.8rem auto; align-items: center; gap: .3rem; }
-.tt-color { position: relative; width: 1.6rem; height: 1.6rem; border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); }
-.tt-color input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
-.tt-color:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tt-color { width: 1.6rem; height: 1.6rem; padding: 0; border-radius: var(--radius-sm); border: 1px solid color-mix(in srgb, var(--text) 18%, transparent); }
 .popover .popup-md { width: 100%; }
 
 .link-face { position: absolute; inset: 0; display: grid; place-items: center; }

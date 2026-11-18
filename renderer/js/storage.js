@@ -4,6 +4,7 @@ import { shrinkTo } from './util/icon.js';
 
 const desk = window.desk;
 export const isElectron = !!(desk && desk.isElectron);
+const IMAGE_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' };
 const LS_KEY = 'lazywaffle-state';
 const OLD_LS_KEY = 'deskcalendar-state'; // 이전 앱 이름으로 저장된 브라우저 데이터
 
@@ -41,9 +42,7 @@ export async function pickImageFile() {
   if (isElectron) {
     const f = await desk.pickFile({ title: '이미지 선택' });
     if (!f) return null;
-    const ext = f.name.split('.').pop().toLowerCase();
-    const type = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' }[ext] || 'image/png';
-    return new Blob([f.data], { type });
+    return new Blob([f.data], { type: IMAGE_TYPES[f.name.split('.').pop().toLowerCase()] || 'image/png' });
   }
   return pickWithInput('image/*');
 }
@@ -59,10 +58,7 @@ export async function storeImage(blob, maxSize = 2560) {
     out = await new Promise((r) => canvas.toBlob(r, 'image/webp', 0.92));
     ext = 'webp';
   }
-  if (isElectron) {
-    const bytes = new Uint8Array(await out.arrayBuffer());
-    return desk.putAsset(bytes, ext);
-  }
+  if (isElectron) return desk.putAsset(new Uint8Array(await out.arrayBuffer()), ext);
   return new Promise((resolve) => {
     const fr = new FileReader();
     fr.onload = () => resolve(fr.result);
@@ -75,26 +71,26 @@ export async function storeImage(blob, maxSize = 2560) {
  * Electron: 파일을 복사하지 않고 원본 경로를 참조한다(app://desk/local/...). 불필요한 파일이 생기지 않는다.
  * 브라우저: 경로 접근이 불가하므로 어쩔 수 없이 줄인 data URL 로 저장한다.
  */
-export async function pickAndStoreImage(maxSize) {
-  hold('file-dialog');
-  try {
-    if (isElectron) {
-      const f = await desk.pickFile({ title: '이미지 선택', pathOnly: true });
-      return f ? f.url : null;
-    }
-    const blob = await pickImageFile();
-    return blob ? storeImage(blob, maxSize) : null;
-  } finally {
-    release('file-dialog');
-  }
+export function pickAndStoreImage(maxSize) {
+  if (!isElectron) return pickAndCopyImage(maxSize);
+  return withFileDialog(async () => {
+    const f = await desk.pickFile({ title: '이미지 선택', pathOnly: true });
+    return f ? f.url : null;
+  });
 }
 
 /** 이미지 선택 → 줄여서 데이터 폴더에 복사한 URL (원본을 옮기거나 지워도 남아야 하는 작은 이미지용) */
-export async function pickAndCopyImage(maxSize) {
+export function pickAndCopyImage(maxSize) {
+  return withFileDialog(async () => {
+    const blob = await pickImageFile();
+    return blob ? storeImage(blob, maxSize) : null;
+  });
+}
+
+async function withFileDialog(fn) {
   hold('file-dialog');
   try {
-    const blob = await pickImageFile();
-    return blob ? await storeImage(blob, maxSize) : null;
+    return await fn();
   } finally {
     release('file-dialog');
   }

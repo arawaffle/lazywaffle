@@ -1,7 +1,7 @@
 // 도메인 액션 (상태 변경은 모두 여기서)
 import { update } from './store.js';
 import { uid, bus } from './lib.js';
-import { todayStr, addDays, fmtKoDate } from './util/date.js';
+import { todayStr, addDays, fmtKoDate, goalPeriod } from './util/date.js';
 import { extractPalette, averageColor } from './util/color.js';
 
 /**
@@ -29,6 +29,11 @@ function removeWithUndo(listKey, id, describe, { after, restore } = {}) {
   });
 }
 const quote = (t) => `'${String(t || '').slice(0, 20)}'`;
+const addExdate = (ev, date) => {
+  ev.exdates = [...new Set([...(ev.exdates || []), date])];
+};
+/** 날짜 목록에 date 를 넣거나(on) 뺀 정렬된 새 목록 */
+const withDate = (dates, date, on) => [...new Set([...(dates || []).filter((d) => d !== date), ...(on ? [date] : [])])].sort();
 
 function setPath(obj, path, value) {
   const keys = path.split('.');
@@ -158,7 +163,7 @@ export function moveOccurrence(occ, delta) {
     if (!e) return;
     prev = structuredClone(e);
     if (e.kind === 'repeat') {
-      e.exdates = [...new Set([...(e.exdates || []), occ.start])];
+      addExdate(e, occ.start);
       const { repeat, exdates, ...rest } = structuredClone(e);
       createdId = uid('ev');
       const day = addDays(occ.start, delta);
@@ -213,7 +218,7 @@ export function copyOccurrence(occ, delta) {
 export function excludeOccurrence(id, date) {
   update((s) => {
     const ev = s.events.find((e) => e.id === id);
-    if (ev) ev.exdates = [...new Set([...(ev.exdates || []), date])];
+    if (ev) addExdate(ev, date);
   });
 }
 
@@ -223,7 +228,7 @@ export function detachOccurrence(id, date, edited) {
   update((s) => {
     const ev = s.events.find((e) => e.id === id);
     if (!ev) return;
-    ev.exdates = [...new Set([...(ev.exdates || []), date])];
+    addExdate(ev, date);
     newId = uid('ev');
     const { repeat, exdates, ...rest } = edited;
     s.events.push({ ...rest, id: newId, kind: 'single', start: edited.start || date, end: edited.start || date, createdAt: Date.now(), updatedAt: Date.now() });
@@ -259,10 +264,8 @@ export function reorderCategories(ids) {
 
 export function toggleCategoryHidden(id) {
   update((s) => {
-    const set = new Set(s.settings.hiddenCategories);
-    if (set.has(id)) set.delete(id);
-    else set.add(id);
-    s.settings.hiddenCategories = [...set];
+    const hidden = s.settings.hiddenCategories;
+    s.settings.hiddenCategories = hidden.includes(id) ? hidden.filter((c) => c !== id) : [...hidden, id];
   });
 }
 
@@ -294,11 +297,8 @@ export function toggleTask(id, date = todayStr()) {
     const t = s.tasks.find((x) => x.id === id);
     if (!t) return;
     if (t.daily) {
-      const set = new Set(t.doneDates || []);
-      const on = !set.has(date);
-      if (on) set.add(date);
-      else set.delete(date);
-      t.doneDates = [...set].sort();
+      const on = !(t.doneDates || []).includes(date);
+      t.doneDates = withDate(t.doneDates, date, on);
       if (t.steps) setStepValue(t, on ? t.steps : Math.min(stepValue(t, date), t.steps - 1), date);
     } else {
       t.done = !t.done;
@@ -327,16 +327,11 @@ export function setTaskStep(id, k, date = todayStr()) {
   update((s) => {
     const t = s.tasks.find((x) => x.id === id);
     if (!t || !t.steps) return;
-    const cur = stepValue(t, date);
-    const next = cur === k ? k - 1 : k;
+    const next = stepValue(t, date) === k ? k - 1 : k;
     setStepValue(t, next, date);
     const full = next >= t.steps;
-    if (t.daily) {
-      const set = new Set(t.doneDates || []);
-      if (full) set.add(date);
-      else set.delete(date);
-      t.doneDates = [...set].sort();
-    } else if (full !== t.done) {
+    if (t.daily) t.doneDates = withDate(t.doneDates, date, full);
+    else if (full !== t.done) {
       t.done = full;
       t.doneAt = full ? new Date().toISOString() : null;
     }
@@ -350,13 +345,10 @@ export function toggleSubtask(taskId, subId) {
     if (!st) return;
     st.done = !st.done;
     if (!t.daily) {
-      const all = t.subtasks.length && t.subtasks.every((x) => x.done);
-      if (all && !t.done) {
-        t.done = true;
-        t.doneAt = new Date().toISOString();
-      } else if (!all && t.done) {
-        t.done = false;
-        t.doneAt = null;
+      const all = t.subtasks.every((x) => x.done);
+      if (all !== !!t.done) {
+        t.done = all;
+        t.doneAt = all ? new Date().toISOString() : null;
       }
     }
   });
@@ -499,6 +491,26 @@ export function addLedgerEntries(entries) {
 }
 export function deleteLedgerEntry(id) {
   removeWithUndo('ledger', id, (x) => '기록 ' + quote(x.memo || x.amount.toLocaleString('ko-KR') + '원'));
+}
+
+/* ───────── 전광판 (주 · 달 목표, 배경색) ───────── */
+/** 목표 추가. 주 · 달이 지나 보이지 않게 된 목표는 이때 함께 지운다 */
+export function addGoal(scope, text) {
+  update((s) => {
+    const today = todayStr();
+    const ws = s.settings.weekStart;
+    s.goals = (s.goals || []).filter((g) => goalPeriod(g.scope, g.date, ws) === goalPeriod(g.scope, today, ws));
+    s.goals.push({ id: uid('goal'), scope, text: text.trim().slice(0, 60), date: today });
+  });
+}
+export function deleteGoal(id) {
+  removeWithUndo('goals', id, (g) => '목표 ' + quote(g.text));
+}
+/** color 가 null 이면 기본 색 */
+export function setTickerColor(id, color) {
+  update((s) => {
+    s.settings.tickerColors = { ...(s.settings.tickerColors || {}), [id]: color };
+  });
 }
 
 /* ───────── 뽀모도로 ───────── */
